@@ -3,7 +3,7 @@ export default function FullscreenToggle({ isFullscreen, onToggle, className = '
     <button
       type="button"
       onClick={onToggle}
-      className={`p-1 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors shrink-0 ${className}`}
+      className={`p-1 rounded text-gray-400 hover:text-teal-400 transition-colors shrink-0 ${className}`}
       title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
       aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
     >

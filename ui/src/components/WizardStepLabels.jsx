@@ -225,7 +225,7 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-gray-300">{seg.interface}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
                           WAN
                         </span>
                       </div>
@@ -276,7 +276,7 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-gray-300">{seg.interface}</span>
                         {getVlanId(seg.interface) !== null && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30">
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30">
                             VLAN {getVlanId(seg.interface)}
                           </span>
                         )}
@@ -373,7 +373,7 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
         <section>
           <h3 className="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">
             VPN Networks
-            <span className="ml-2 text-[10px] font-medium normal-case tracking-normal px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">Experimental</span>
+            <span className="ml-2 text-xs font-medium normal-case tracking-normal px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">Experimental</span>
           </h3>
           <VpnNetworkTable
             entries={vpnSegments.map(seg => {

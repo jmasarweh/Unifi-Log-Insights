@@ -11,16 +11,11 @@ from psycopg2.extras import RealDictCursor
 from db import get_config
 from deps import get_conn, put_conn, enricher_db
 from parsers import VPN_PREFIX_DESCRIPTIONS
-from query_helpers import build_log_query, validate_time_params, VALID_TIME_RANGES
+from query_helpers import build_log_query, validate_time_params, VALID_TIME_RANGES, ALLOWED_DIMENSIONS
 
 logger = logging.getLogger('api.flows')
 
 router = APIRouter()
-
-ALLOWED_DIMENSIONS = {
-    'src_ip', 'dst_ip', 'dst_port', 'protocol',
-    'service_name', 'direction', 'interface_in', 'interface_out',
-}
 
 # SQL expressions for each dimension — never interpolate user input directly
 DIMENSION_EXPRS = {

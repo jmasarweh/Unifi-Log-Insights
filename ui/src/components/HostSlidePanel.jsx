@@ -55,7 +55,7 @@ export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
               <span className="text-sm font-semibold text-gray-100 font-mono truncate">{data.device_name || data.ip}</span>
               {data.device_name && <span className="text-xs text-gray-500 font-mono">{data.ip}</span>}
               {data.network && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-500/15 text-violet-400 border border-violet-500/30 shrink-0">
+                <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-violet-500/15 text-violet-400 border border-violet-500/30 shrink-0">
                   {data.network}{data.vlan != null ? ` (VLAN ${data.vlan})` : ''}
                 </span>
               )}
@@ -79,7 +79,7 @@ export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
           <div className="grid grid-cols-2">
             {/* Outbound peers */}
             <div className="border-r border-gray-800/50">
-              <div className="px-4 py-2 text-[10px] text-gray-500 uppercase tracking-wider font-medium">Outbound Peers</div>
+              <div className="px-4 py-2 text-xs text-gray-500 uppercase tracking-wider font-medium">Outbound Peers</div>
               {(data.peers_as_source ?? []).length === 0 ? (
                 <div className="px-4 py-2 text-xs text-gray-600">No outbound traffic</div>
               ) : (
@@ -94,12 +94,12 @@ export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
                         <td className="px-4 py-1.5">
                           <span className="text-gray-200 font-mono hover:text-blue-400">{peer.peer_ip}</span>
                           {peer.device_name && (
-                            <span className="ml-2 text-[10px] text-gray-500">{peer.device_name}</span>
+                            <span className="ml-2 text-xs text-gray-500">{peer.device_name}</span>
                           )}
                         </td>
                         <td className="px-2 py-1.5 text-right text-gray-300 tabular-nums">{formatNumber(peer.count)}</td>
                         <td className="px-2 py-1.5 text-right">
-                          {peer.block_count > 0 && <span className="text-red-400 text-[10px]">{formatNumber(peer.block_count)} blk</span>}
+                          {peer.block_count > 0 && <span className="text-red-400 text-xs">{formatNumber(peer.block_count)} blk</span>}
                         </td>
                       </tr>
                     ))}
@@ -109,7 +109,7 @@ export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
             </div>
             {/* Inbound peers */}
             <div>
-              <div className="px-4 py-2 text-[10px] text-gray-500 uppercase tracking-wider font-medium">Inbound Peers</div>
+              <div className="px-4 py-2 text-xs text-gray-500 uppercase tracking-wider font-medium">Inbound Peers</div>
               {(data.peers_as_destination ?? []).length === 0 ? (
                 <div className="px-4 py-2 text-xs text-gray-600">No inbound traffic</div>
               ) : (
@@ -124,12 +124,12 @@ export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
                         <td className="px-4 py-1.5">
                           <span className="text-gray-200 font-mono hover:text-blue-400">{peer.peer_ip}</span>
                           {peer.device_name && (
-                            <span className="ml-2 text-[10px] text-gray-500">{peer.device_name}</span>
+                            <span className="ml-2 text-xs text-gray-500">{peer.device_name}</span>
                           )}
                         </td>
                         <td className="px-2 py-1.5 text-right text-gray-300 tabular-nums">{formatNumber(peer.count)}</td>
                         <td className="px-2 py-1.5 text-right">
-                          {peer.block_count > 0 && <span className="text-red-400 text-[10px]">{formatNumber(peer.block_count)} blk</span>}
+                          {peer.block_count > 0 && <span className="text-red-400 text-xs">{formatNumber(peer.block_count)} blk</span>}
                         </td>
                       </tr>
                     ))}
@@ -142,10 +142,10 @@ export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
           {/* Top Ports */}
           {data.ports?.length > 0 && (
             <div className="border-t border-gray-800/50">
-              <div className="px-4 py-2 text-[10px] text-gray-500 uppercase tracking-wider font-medium">Top Ports</div>
+              <div className="px-4 py-2 text-xs text-gray-500 uppercase tracking-wider font-medium">Top Ports</div>
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-[10px] text-gray-500 uppercase tracking-wider">
+                  <tr className="text-xs text-gray-500 uppercase tracking-wider">
                     <th className="text-left px-4 py-1 font-medium">Port</th>
                     <th className="text-left px-2 py-1 font-medium">Service</th>
                     <th className="text-left px-2 py-1 font-medium">Proto</th>

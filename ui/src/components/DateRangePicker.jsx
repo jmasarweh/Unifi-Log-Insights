@@ -145,7 +145,7 @@ export default function DateRangePicker({ isActive, timeFrom, timeTo, onApply, o
         Custom
       </button>
       {isActive && label && (
-        <span className="ml-1 text-[10px] date-range-label">{label}</span>
+        <span className="ml-1 text-xs date-range-label">{label}</span>
       )}
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center sm:absolute sm:inset-auto sm:top-full sm:left-0 sm:mt-1 sm:z-30 sm:flex-none sm:bg-transparent">
@@ -169,7 +169,7 @@ export default function DateRangePicker({ isActive, timeFrom, timeTo, onApply, o
               classNames={{ root: 'rdp-dark' }}
             />
             <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-800">
-              <label htmlFor="drp-start-time" className="text-[10px] text-gray-500">From</label>
+              <label htmlFor="drp-start-time" className="text-xs text-gray-500">From</label>
               <input
                 id="drp-start-time"
                 type="time"
@@ -177,7 +177,7 @@ export default function DateRangePicker({ isActive, timeFrom, timeTo, onApply, o
                 onChange={(e) => setStartTime(e.target.value)}
                 className="bg-gray-800/50 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-gray-500"
               />
-              <label htmlFor="drp-end-time" className="text-[10px] text-gray-500">To</label>
+              <label htmlFor="drp-end-time" className="text-xs text-gray-500">To</label>
               <input
                 id="drp-end-time"
                 type="time"

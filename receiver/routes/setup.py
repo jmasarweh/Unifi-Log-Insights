@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, Json
 
 from db import get_config, set_config, count_logs, encrypt_api_key, decrypt_api_key
 from deps import get_conn, put_conn, enricher_db, unifi_api, signal_receiver, APP_VERSION
@@ -15,6 +15,7 @@ from parsers import (
     VPN_PREFIX_BADGES, VPN_INTERFACE_PREFIXES, VPN_BADGE_CHOICES,
     VPN_BADGE_LABELS, VPN_PREFIX_DESCRIPTIONS,
 )
+from query_helpers import validate_view_filters
 
 logger = logging.getLogger('api.setup')
 
@@ -366,11 +367,27 @@ def export_config(include_api_key: bool = False):
                 config[_API_KEY_CONFIG_KEY] = decrypted
                 includes_api_key = True
 
+    # Export saved views
+    views_list = []
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT name, filters FROM saved_views ORDER BY created_at DESC")
+            for row in cur.fetchall():
+                views_list.append({"name": row["name"], "filters": row["filters"]})
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.debug("Could not export saved_views (table may not exist yet)", exc_info=True)
+    finally:
+        put_conn(conn)
+
     return {
         "version": APP_VERSION,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "includes_api_key": includes_api_key,
         "config": config,
+        "saved_views": views_list,
     }
 
 
@@ -417,6 +434,40 @@ def import_config(body: dict):
             logger.warning("Failed to encrypt imported API key: %s", e)
             failed_keys.append(_API_KEY_CONFIG_KEY)
 
+    # Import saved views (if present)
+    failed_saved_views = []
+    imported_views_count = 0
+    if "saved_views" in body and isinstance(body["saved_views"], list):
+        valid_views = []
+        for i, view in enumerate(body["saved_views"]):
+            name = view.get("name", "").strip() if isinstance(view.get("name"), str) else ""
+            filters = view.get("filters")
+            if not name or not filters:
+                failed_saved_views.append({"index": i, "name": name or "(empty)", "reason": "missing name or filters"})
+                continue
+            error = validate_view_filters(filters)
+            if error:
+                failed_saved_views.append({"index": i, "name": name, "reason": error})
+                continue
+            valid_views.append((name, filters))
+
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM saved_views")
+                for name, filters in valid_views:
+                    cur.execute(
+                        "INSERT INTO saved_views (name, filters) VALUES (%s, %s)",
+                        [name, Json(filters)]
+                    )
+            conn.commit()
+            imported_views_count = len(valid_views)
+        except Exception as e:
+            conn.rollback()
+            logger.warning("Failed to import saved views: %s", e)
+        finally:
+            put_conn(conn)
+
     # Signal receiver to reload config
     signal_receiver()
 
@@ -427,6 +478,10 @@ def import_config(body: dict):
     result = {"success": True, "imported_keys": imported_keys}
     if failed_keys:
         result["failed_keys"] = failed_keys
+    if imported_views_count:
+        result["imported_saved_views"] = imported_views_count
+    if failed_saved_views:
+        result["failed_saved_views"] = failed_saved_views
     return result
 
 

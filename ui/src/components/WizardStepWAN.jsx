@@ -234,7 +234,7 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
                   <span className="text-xs text-gray-400">{iface.desc}</span>
                 </div>
                 {iface.note && (
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                     {iface.note}
                   </span>
                 )}

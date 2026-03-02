@@ -201,7 +201,7 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
                       {wan.name}
                     </span>
                     {wan.type && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30 shrink-0">
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30 shrink-0">
                         {wan.type}
                       </span>
                     )}
@@ -251,7 +251,7 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-200 truncate">{net.label}</span>
                     {net.vlanId != null && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30 shrink-0">
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30 shrink-0">
                         VLAN {net.vlanId}
                       </span>
                     )}
@@ -278,7 +278,7 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
               VPN Networks
-              <span className="ml-2 text-[10px] font-medium normal-case tracking-normal px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">Experimental</span>
+              <span className="ml-2 text-xs font-medium normal-case tracking-normal px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">Experimental</span>
             </h2>
             <div className="flex items-center gap-2">
               {saveMsg && (
@@ -350,12 +350,12 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
                               {fullName}
                             </span>
                             {entry.badge && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/15 text-teal-400 border border-teal-500/30 shrink-0">
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-teal-500/15 text-teal-400 border border-teal-500/30 shrink-0">
                                 {entry.badge}
                               </span>
                             )}
                             {!entry.badge && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 shrink-0">
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 shrink-0">
                                 No badge
                               </span>
                             )}
@@ -400,14 +400,14 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
                               <span className="text-sm font-medium text-gray-200 truncate">
                                 {desc || i.name}
                               </span>
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gray-100 border border-white/20 shrink-0">
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-white/10 text-gray-100 border border-white/20 shrink-0">
                                 New
                               </span>
                             </div>
                             <div className="flex items-center gap-2 mt-1">
                               <span className="text-xs font-mono text-gray-500">{i.name}</span>
                               {!suggested && (
-                                <span className="text-[10px] text-yellow-400 italic">type needs verifying</span>
+                                <span className="text-xs text-yellow-400 italic">type needs verifying</span>
                               )}
                             </div>
                           </div>

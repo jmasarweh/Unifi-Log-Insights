@@ -377,7 +377,7 @@ export default function SettingsDataBackups({ totalLogs, storage }) {
                       Backup from {importPreview.exported_at ? new Date(importPreview.exported_at).toLocaleDateString() : 'unknown date'}
                     </span>
                     {importPreview.version && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">
                         v{importPreview.version}
                       </span>
                     )}
@@ -387,14 +387,14 @@ export default function SettingsDataBackups({ totalLogs, storage }) {
                   </div>
                   <div className="flex flex-wrap gap-1 mt-1.5">
                     {Object.keys(importPreview.config).filter(k => k !== 'unifi_api_key').map(key => (
-                      <span key={key} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-mono">
+                      <span key={key} className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 font-mono">
                         {key}
                       </span>
                     ))}
                   </div>
                   {importPreview.includes_api_key || importPreview.config.unifi_api_key ? (
                     <div className="flex items-center gap-1.5 mt-2">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                         Includes API Key
                       </span>
                     </div>

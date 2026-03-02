@@ -101,6 +101,36 @@ export async function fetchHostDetail(params = {}) {
   return resp.json()
 }
 
+// ── Saved Views API ─────────────────────────────────────────────────────────
+
+export async function fetchSavedViews() {
+  const resp = await fetch(`${BASE}/views`)
+  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
+  return resp.json()
+}
+
+export async function createSavedView(name, filters) {
+  const resp = await fetch(`${BASE}/views`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, filters })
+  })
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}))
+    throw new Error(body.detail || `API error: ${resp.status}`)
+  }
+  return resp.json()
+}
+
+export async function deleteSavedView(id) {
+  const resp = await fetch(`${BASE}/views/${id}`, { method: 'DELETE' })
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}))
+    throw new Error(body.detail || `API error: ${resp.status}`)
+  }
+  return resp.json()
+}
+
 // ── Threat Map API ──────────────────────────────────────────────────────────
 
 export async function fetchLogsBatch(ids) {

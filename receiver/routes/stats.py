@@ -1,11 +1,14 @@
 """Dashboard statistics endpoint."""
 
+import csv
+import io
 import ipaddress
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from psycopg2.extras import RealDictCursor
 
 from db import get_config, get_wan_ips_from_config
@@ -15,6 +18,31 @@ from query_helpers import parse_time_range, build_log_query, validate_time_param
 logger = logging.getLogger('api.stats')
 
 router = APIRouter()
+
+
+def _apply_ip_filters(where, params, src_ip, dst_ip, interface_in, interface_out):
+    """Validate and append IP/interface exact-match filters to a WHERE clause."""
+    if src_ip:
+        try:
+            ipaddress.ip_address(src_ip)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail="Invalid src_ip") from err
+        where += " AND src_ip = %s::inet"
+        params.append(src_ip)
+    if dst_ip:
+        try:
+            ipaddress.ip_address(dst_ip)
+        except ValueError as err:
+            raise HTTPException(status_code=400, detail="Invalid dst_ip") from err
+        where += " AND dst_ip = %s::inet"
+        params.append(dst_ip)
+    if interface_in:
+        where += " AND interface_in = %s"
+        params.append(interface_in)
+    if interface_out:
+        where += " AND interface_out = %s"
+        params.append(interface_out)
+    return where, params
 
 
 @router.get("/api/stats")
@@ -344,27 +372,7 @@ def get_ip_pairs(
     )
 
     # Exact-match filters for cross-filtering (NOT through build_log_query LIKE path)
-    # Uses ::inet cast to leverage existing INET indexes on src_ip/dst_ip
-    if src_ip:
-        try:
-            ipaddress.ip_address(src_ip)
-        except ValueError as err:
-            raise HTTPException(status_code=400, detail="Invalid src_ip") from err
-        where += " AND src_ip = %s::inet"
-        params.append(src_ip)
-    if dst_ip:
-        try:
-            ipaddress.ip_address(dst_ip)
-        except ValueError as err:
-            raise HTTPException(status_code=400, detail="Invalid dst_ip") from err
-        where += " AND dst_ip = %s::inet"
-        params.append(dst_ip)
-    if interface_in:
-        where += " AND interface_in = %s"
-        params.append(interface_in)
-    if interface_out:
-        where += " AND interface_out = %s"
-        params.append(interface_out)
+    where, params = _apply_ip_filters(where, params, src_ip, dst_ip, interface_in, interface_out)
 
     sql = f"""
     WITH pair_counts AS (
@@ -429,3 +437,83 @@ def get_ip_pairs(
         raise HTTPException(status_code=500, detail="Internal server error") from e
     finally:
         put_conn(conn)
+
+
+@router.get("/api/stats/ip-pairs/csv")
+def get_ip_pairs_csv(
+    time_range: Optional[str] = Query("24h"),
+    time_from: Optional[str] = Query(None),
+    time_to: Optional[str] = Query(None),
+    log_type: Optional[str] = Query("firewall"),
+    rule_action: Optional[str] = Query(None),
+    direction: Optional[str] = Query(None),
+    interface: Optional[str] = Query(None),
+    service: Optional[str] = Query(None),
+    src_ip: Optional[str] = Query(None),
+    dst_ip: Optional[str] = Query(None),
+    dst_port: Optional[str] = Query(None),
+    protocol: Optional[str] = Query(None),
+    interface_in: Optional[str] = Query(None),
+    interface_out: Optional[str] = Query(None),
+):
+    """Stream all filtered IP pairs as CSV (hard cap 10,000 rows)."""
+    time_range, time_from, time_to = validate_time_params(time_range, time_from, time_to)
+
+    where, params = build_log_query(
+        log_type=log_type, time_range=time_range, time_from=time_from, time_to=time_to,
+        src_ip=None, dst_ip=None, ip=None, direction=direction,
+        rule_action=rule_action, rule_name=None, country=None, threat_min=None,
+        search=None, service=service, interface=interface,
+        dst_port=dst_port, protocol=protocol,
+    )
+
+    where, params = _apply_ip_filters(where, params, src_ip, dst_ip, interface_in, interface_out)
+
+    sql = f"""
+    SELECT
+        host(src_ip) AS source_ip, host(dst_ip) AS destination_ip,
+        dst_port AS port, LOWER(protocol) AS protocol,
+        MODE() WITHIN GROUP (ORDER BY service_name) AS service,
+        COUNT(*) FILTER (WHERE rule_action = 'allow') AS allow_count,
+        COUNT(*) FILTER (WHERE rule_action = 'block') AS block_count
+    FROM logs
+    WHERE {where}
+      AND src_ip IS NOT NULL AND dst_ip IS NOT NULL
+      AND dst_port IS NOT NULL AND protocol IS NOT NULL
+    GROUP BY src_ip, dst_ip, dst_port, LOWER(protocol)
+    ORDER BY (COUNT(*)) DESC
+    LIMIT 10000
+    """
+
+    timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+
+    def generate():
+        conn = get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                cols = [desc[0] for desc in cur.description]
+                # Header row
+                buf = io.StringIO()
+                writer = csv.writer(buf)
+                writer.writerow(cols)
+                yield buf.getvalue()
+                # Data rows
+                for row in cur:
+                    buf = io.StringIO()
+                    writer = csv.writer(buf)
+                    writer.writerow(row)
+                    yield buf.getvalue()
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logger.exception("Error streaming CSV export")
+            raise
+        finally:
+            put_conn(conn)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=ip_pairs_{timestamp}.csv"},
+    )

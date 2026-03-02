@@ -86,6 +86,7 @@ body {
   vertical-align: middle;
 }
 .info-tooltip-btn:hover { opacity: 1; }
+.info-tooltip-btn:focus-visible { box-shadow: 0 0 0 2px rgba(59,130,246,.4); outline: none; }
 .info-tooltip-popup {
   position: fixed;
   z-index: 70;

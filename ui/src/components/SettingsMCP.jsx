@@ -422,7 +422,7 @@ export default function SettingsMCP() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${
+                    <span className={`text-xs uppercase font-semibold px-2 py-0.5 rounded ${
                       token.disabled ? 'bg-gray-700 text-gray-300' : 'bg-green-500/10 text-green-300'
                     }`}>
                       {token.disabled ? 'Disabled' : 'Active'}
@@ -634,7 +634,7 @@ export default function SettingsMCP() {
                           {entry.token_prefix && ` (${entry.token_prefix}…)`}
                         </p>
                       </div>
-                      <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${
+                      <span className={`text-xs uppercase font-semibold px-2 py-0.5 rounded ${
                         entry.success ? 'bg-green-500/10 text-green-300' : 'bg-red-500/10 text-red-300'
                       }`}>
                         {entry.success ? 'Success' : 'Error'}

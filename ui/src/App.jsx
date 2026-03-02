@@ -453,19 +453,19 @@ export default function App() {
           {health && (
             <>
               <div className="hidden md:flex items-center gap-3">
-                <span className="text-[10px] text-gray-400">
+                <span className="text-xs text-gray-400">
                   AbuseIPDB: {formatAbuseIPDB(health.abuseipdb)}
                 </span>
-                <span className="text-[10px] text-gray-600">|</span>
-                <span className="text-[10px] text-gray-400">
+                <span className="text-xs text-gray-600">|</span>
+                <span className="text-xs text-gray-400">
                   MaxMind: {formatShortDate(health.maxmind_last_update)}
                 </span>
-                <span className="text-[10px] text-gray-600">|</span>
-                <span className="text-[10px] text-gray-400">
+                <span className="text-xs text-gray-600">|</span>
+                <span className="text-xs text-gray-400">
                   Next pull: {formatShortDate(health.maxmind_next_update)}
                 </span>
-                <span className="text-[10px] text-gray-600">|</span>
-                <span className="text-[10px] text-gray-400">
+                <span className="text-xs text-gray-600">|</span>
+                <span className="text-xs text-gray-400">
                   {health.total_logs?.toLocaleString()} logs
                 </span>
               </div>
@@ -482,8 +482,8 @@ export default function App() {
                 </button>
                 {showStatusTooltip && (
                   <div className="md:hidden absolute right-0 top-full mt-1 w-52 bg-gray-950 border border-gray-700 rounded-lg shadow-lg z-30 p-3">
-                    <div className="text-[10px] text-gray-300 font-medium mb-2">System Status</div>
-                    <div className="text-[10px] text-gray-400 space-y-1">
+                    <div className="text-xs text-gray-300 font-medium mb-2">System Status</div>
+                    <div className="text-xs text-gray-400 space-y-1">
                       <div>AbuseIPDB: {formatAbuseIPDB(health.abuseipdb)}</div>
                       <div>MaxMind: {formatShortDate(health.maxmind_last_update)}</div>
                       <div>Next pull: {formatShortDate(health.maxmind_next_update)}</div>

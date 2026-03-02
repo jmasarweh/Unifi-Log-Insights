@@ -4,6 +4,8 @@ import { fetchFlowGraph } from '../api'
 import { formatNumber, formatServiceName, getInterfaceName } from '../utils'
 import FullscreenToggle from './FullscreenToggle'
 import InfoTooltip from './InfoTooltip'
+import KebabMenu, { SaveLoadMenuItems } from './KebabMenu'
+import { exportChartPng } from '../lib/exportPng'
 
 const DIMENSION_OPTIONS = [
   { value: 'src_ip', label: 'Source IP' },
@@ -56,16 +58,36 @@ function estimateLabelHeight(node, data) {
     const vlan = data?.gateway_vlans?.[node.label]
     const vpnBadge = data?.vpn_badges?.[node.label]
     const hasExtra = deviceName || vlan != null || vpnBadge
-    if (hasExtra && nodeH > 12) return deviceName ? 32 : 24
+    if (hasExtra && nodeH > 12) return deviceName ? 40 : 32
   }
 
   // Default text label
   return 14
 }
 
-export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFilter, hostIp, hostSearchInput, onHostSearchChange, onHostSearch, onHostSearchClear }) {
-  const [dims, setDims] = useState(['src_ip', 'dst_port', 'dst_ip'])
-  const [topN, setTopN] = useState(15)
+function SankeyMenuItems({ onSaveView, onLoadView, savedViews, onDeleteView, onDownloadImage, close }) {
+  return (
+    <>
+      <SaveLoadMenuItems
+        onSaveView={onSaveView}
+        onLoadView={onLoadView}
+        savedViews={savedViews}
+        onDeleteView={onDeleteView}
+        close={close}
+      />
+      {/* Download Image */}
+      <button
+        type="button"
+        onClick={onDownloadImage}
+        className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-800 transition-colors"
+      >
+        Save Graph as Image
+      </button>
+    </>
+  )
+}
+
+export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFilter, hostIp, hostSearchInput, onHostSearchChange, onHostSearch, onHostSearchClear, dims, setDims, topN, setTopN, onSaveView, onLoadView, savedViews, onDeleteView, onRefreshViews }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -291,7 +313,7 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
       if (hasExtra && nodeH > 12) {
         const foW = 180
         const foX = isLeft ? x : x - foW
-        const foH = deviceName ? 32 : 24
+        const foH = deviceName ? 40 : 32
         return (
           <foreignObject x={foX} y={cy - foH / 2} width={foW} height={foH}
                           className="pointer-events-none" style={{ opacity }}>
@@ -412,7 +434,7 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
                 value={hostSearchInput || ''}
                 onChange={e => onHostSearchChange(e.target.value)}
                 onKeyDown={onHostSearch}
-                className="w-full sm:w-36 bg-gray-800/50 text-gray-300 text-xs rounded px-2 py-0.5 border border-gray-700 placeholder-gray-600 focus:outline-none focus:border-gray-500"
+                className="w-24 sm:w-36 bg-gray-800/50 text-gray-300 text-xs rounded px-2 py-0.5 border border-gray-700 placeholder-gray-600 focus:outline-none focus:border-gray-500"
               />
               {(hostSearchInput || hostIp) && (
                 <button
@@ -433,7 +455,21 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
           </span>
         )}
 
-        <FullscreenToggle isFullscreen={isFullscreen} onToggle={() => setIsFullscreen(f => !f)} className="ml-auto" />
+        <div className="flex items-center gap-1 ml-auto">
+          <FullscreenToggle isFullscreen={isFullscreen} onToggle={() => setIsFullscreen(f => !f)} />
+          <KebabMenu onOpen={() => { setDimMenu(null); onRefreshViews?.() }}>
+            {({ close }) => (
+              <SankeyMenuItems
+                onSaveView={onSaveView}
+                onLoadView={onLoadView}
+                savedViews={savedViews}
+                onDeleteView={onDeleteView}
+                onDownloadImage={() => { exportChartPng(containerRef.current); close() }}
+                close={close}
+              />
+            )}
+          </KebabMenu>
+        </div>
       </div>
 
       {/* Chart — scrollable vertically and horizontally (originally vertical-only; horizontal added for mobile) */}
@@ -469,9 +505,9 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
                         aria-controls={dimMenu?.dimIndex === col.dimIndex ? `dim-menu-${col.dimIndex}` : undefined}
                         aria-label={`${col.label} dimension selector`}
                       >
-                        {col.isLast && <svg className="w-2 h-2 shrink-0" viewBox="0 0 10 6" fill="currentColor" aria-hidden="true"><path d="M0 0l5 6 5-6z" /></svg>}
+                        {col.isLast && <svg className="shrink-0" width="8" height="8" viewBox="0 0 10 6" fill="currentColor" aria-hidden="true"><path d="M0 0l5 6 5-6z" /></svg>}
                         <span className="sankey-col-label">{col.label}</span>
-                        {!col.isLast && <svg className="w-2 h-2 shrink-0" viewBox="0 0 10 6" fill="currentColor" aria-hidden="true"><path d="M0 0l5 6 5-6z" /></svg>}
+                        {!col.isLast && <svg className="shrink-0" width="8" height="8" viewBox="0 0 10 6" fill="currentColor" aria-hidden="true"><path d="M0 0l5 6 5-6z" /></svg>}
                       </button>
                     </div>
                   </foreignObject>

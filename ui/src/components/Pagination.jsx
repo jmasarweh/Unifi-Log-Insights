@@ -16,11 +16,11 @@ export default function Pagination({ page, pages, total, perPage, onChange, vers
         </span>
         {version && (
           <div className="flex items-center gap-1.5">
-            <span className={`hidden md:inline text-[10px] ${outdated ? 'text-amber-400' : 'text-white'}`}>v{version}</span>
+            <span className={`hidden md:inline text-xs ${outdated ? 'text-amber-400' : 'text-white'}`}>v{version}</span>
             {outdated ? (
               <button
                 onClick={() => setShowNotes(true)}
-                className="hidden md:inline-flex items-center gap-1 text-[10px] text-amber-400 hover:text-amber-300 transition-colors"
+                className="hidden md:inline-flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition-colors"
                 title={`Update available: ${latestRelease.tag}`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
@@ -31,7 +31,7 @@ export default function Pagination({ page, pages, total, perPage, onChange, vers
             ) : latestRelease?.body && (
               <button
                 onClick={() => setShowNotes(true)}
-                className="hidden md:inline text-[10px] text-gray-400 hover:text-gray-200 transition-colors"
+                className="hidden md:inline text-xs text-gray-400 hover:text-gray-200 transition-colors"
               >
                 - Release Notes
               </button>

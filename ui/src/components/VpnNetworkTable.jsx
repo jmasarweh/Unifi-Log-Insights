@@ -45,7 +45,7 @@ export default function VpnNetworkTable({
             <th className="px-4 py-2 text-left font-medium">Network Label</th>
             <th className="px-4 py-2 text-left font-medium">
               <div>Network Pool / CIDR</div>
-              <div className="font-normal text-[10px] text-gray-500 normal-case tracking-normal">First IP = VPN Gateway</div>
+              <div className="font-normal text-xs text-gray-500 normal-case tracking-normal">First IP = VPN Gateway</div>
             </th>
             {showRemove && <th className="w-10"></th>}
           </tr>
@@ -60,7 +60,7 @@ export default function VpnNetworkTable({
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-300">{desc || entry.iface}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/15 text-teal-400 border border-teal-500/30">
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-teal-500/15 text-teal-400 border border-teal-500/30">
                         VPN
                       </span>
                     </div>

@@ -3,6 +3,8 @@ import { fetchIPPairs } from '../api'
 import { formatNumber, formatServiceName, resolveIpSublines } from '../utils'
 import IPCell from './IPCell'
 import InfoTooltip from './InfoTooltip'
+import KebabMenu, { SaveLoadMenuItems } from './KebabMenu'
+import { exportCsv } from '../lib/exportCsv'
 
 // Sankey node type → API param name mapping
 const SANKEY_PARAM_MAP = {
@@ -27,9 +29,31 @@ const FILTER_LABELS = {
   interface_out: 'Interface Out',
 }
 
+function TopIPPairsMenuItems({ onSaveView, onLoadView, savedViews, onDeleteView, onExportCsv, close }) {
+  return (
+    <>
+      <SaveLoadMenuItems
+        onSaveView={onSaveView}
+        onLoadView={onLoadView}
+        savedViews={savedViews}
+        onDeleteView={onDeleteView}
+        close={close}
+      />
+      {/* Export CSV */}
+      <button
+        type="button"
+        onClick={onExportCsv}
+        className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-800 transition-colors"
+      >
+        Export CSV
+      </button>
+    </>
+  )
+}
+
 // onIpClick(ip, rowIndex) — rowIndex is used by FlowView's toggle logic:
 // clicking the same IP in the same row closes the panel, different row keeps it open.
-export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearSankeyFilter, zoneFilter, onClearZoneFilter, onIpClick }) {
+export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearSankeyFilter, zoneFilter, onClearZoneFilter, onIpClick, onSaveView, onLoadView, savedViews, onDeleteView, onRefreshViews }) {
   const [pairs, setPairs] = useState([])
   const [loading, setLoading] = useState(true)
   const [limit, setLimit] = useState(25)
@@ -84,7 +108,7 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
           </InfoTooltip>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-[10px] text-gray-500">Show</label>
+          <label className="text-xs text-gray-500">Show</label>
           <select
             value={limit}
             onChange={e => setLimit(Number(e.target.value))}
@@ -94,6 +118,18 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
               <option key={n} value={n}>{n}</option>
             ))}
           </select>
+          <KebabMenu onOpen={onRefreshViews}>
+            {({ close }) => (
+              <TopIPPairsMenuItems
+                onSaveView={onSaveView}
+                onLoadView={onLoadView}
+                savedViews={savedViews}
+                onDeleteView={onDeleteView}
+                onExportCsv={() => { exportCsv(filters, sankeyFilter, zoneFilter); close() }}
+                close={close}
+              />
+            )}
+          </KebabMenu>
         </div>
       </div>
 
@@ -124,7 +160,7 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
         <div className="overflow-y-auto overflow-x-hidden min-h-0 flex-1 text-xs">
           <table className="w-full table-fixed">
             <thead>
-              <tr className="text-[10px] text-gray-500 uppercase tracking-wider">
+              <tr className="text-xs text-gray-500 uppercase tracking-wider">
                 <th className="text-left px-2 py-2 font-medium whitespace-nowrap w-[30%] sm:w-[25%]">Source</th>
                 <th className="text-left px-2 py-2 font-medium whitespace-nowrap w-[30%] sm:w-[25%]">Destination</th>
                 <th className="text-left px-3 py-2 font-medium whitespace-nowrap w-[20%] sm:w-[16%]">Port/Proto</th>
@@ -167,12 +203,12 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
                   <td className="px-3 py-1.5 whitespace-nowrap">
                     <div className="flex items-center flex-nowrap gap-1">
                       {p.allow_count > 0 && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                           {formatNumber(p.allow_count)}
                         </span>
                       )}
                       {p.block_count > 0 && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/20 text-red-400 border border-red-500/40">
+                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/40">
                           {formatNumber(p.block_count)}
                         </span>
                       )}

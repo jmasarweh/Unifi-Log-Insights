@@ -412,7 +412,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                           <div className="flex items-center gap-3 mb-3">
                             <span className="text-sm font-semibold text-gray-200">{w.name.replace(/\s*\(WAN\d*\)\s*$/i, '')}</span>
                             {interfaceLabels[currentIface] && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30 shrink-0">
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30 shrink-0">
                                 {interfaceLabels[currentIface]}
                               </span>
                             )}
@@ -480,7 +480,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                             <div key={iface} className="flex items-center gap-3 px-4 py-2.5 border border-gray-700 rounded-lg">
                               <span className="text-sm font-mono font-semibold text-gray-200">{iface}</span>
                               {interfaceLabels[iface] && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
                                   {interfaceLabels[iface]}
                                 </span>
                               )}
@@ -607,11 +607,11 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                                   <td className="px-4 py-2.5">
                                     <div className="flex items-center gap-2">
                                       <span className="font-mono text-gray-300">{iface}</span>
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                                      <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
                                         WAN
                                       </span>
                                       {!isActive && (
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30">
+                                        <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30">
                                           Inactive
                                         </span>
                                       )}
@@ -636,10 +636,10 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                                 <td className="px-4 py-2.5">
                                   <div className="flex items-center gap-2">
                                     <span className="font-mono text-gray-300">{iface}</span>
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                                    <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
                                       WAN
                                     </span>
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-400 border border-gray-600">
+                                    <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-400 border border-gray-600">
                                       Manual
                                     </span>
                                   </div>
@@ -675,7 +675,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                               <th className="px-4 py-2 text-left font-medium">Network Label</th>
                               <th className="px-4 py-2 text-left font-medium">
                                 <div>Network Pool / CIDR</div>
-                                <div className="font-normal text-[10px] text-gray-500 normal-case tracking-normal">First IP = Gateway</div>
+                                <div className="font-normal text-xs text-gray-500 normal-case tracking-normal">First IP = Gateway</div>
                               </th>
                             </tr>
                           </thead>
@@ -686,7 +686,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                                   <div className="flex items-center gap-2">
                                     <span className="font-mono text-gray-300">{n.interface}</span>
                                     {n.vlan != null && (
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30">
+                                      <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30">
                                         VLAN {n.vlan}
                                       </span>
                                     )}
@@ -717,7 +717,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                     <section>
                       <h3 className="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">
                         VPN Networks
-                        <span className="ml-2 text-[10px] font-medium normal-case tracking-normal px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">Experimental</span>
+                        <span className="ml-2 text-xs font-medium normal-case tracking-normal px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">Experimental</span>
                       </h3>
                       <VpnNetworkTable
                         entries={[...vpnSegments].sort((a, b) => {

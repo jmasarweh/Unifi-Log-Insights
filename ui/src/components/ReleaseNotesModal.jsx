@@ -68,7 +68,7 @@ export default function ReleaseNotesModal({ latestRelease, onClose, currentVersi
           <span id="release-notes-title" className="text-sm font-semibold text-gray-200">Release Notes — {displayedRelease.tag}</span>
           <div className="flex items-center gap-3">
             {loadingReleases ? (
-              <span className="text-[10px] text-gray-500">Loading versions...</span>
+              <span className="text-xs text-gray-500">Loading versions...</span>
             ) : allReleases && allReleases.length > 1 && (
               <div className="flex items-center gap-1.5">
                 <label htmlFor="previous-releases-select" className="text-xs text-gray-500">Other Releases:</label>

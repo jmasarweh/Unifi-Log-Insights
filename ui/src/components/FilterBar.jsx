@@ -238,7 +238,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays }) {
             <button
               key={type}
               onClick={() => toggleType(type)}
-              className={`px-2.5 py-1 rounded text-xs font-medium uppercase border transition-all ${
+              className={`px-2.5 py-[3px] rounded text-xs font-medium uppercase border transition-all ${
                 activeTypes.includes(type)
                   ? LOG_TYPE_STYLES[type]
                   : 'border-transparent text-gray-500 hover:text-gray-400'
@@ -256,7 +256,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays }) {
             <button
               key={action}
               onClick={() => toggleAction(action)}
-              className={`px-2 py-1 rounded text-xs font-medium uppercase border transition-all ${
+              className={`px-2 py-[3px] rounded text-xs font-medium uppercase border transition-all ${
                 activeActions.includes(action)
                   ? ACTION_STYLES[action]
                   : 'border-transparent text-gray-500 hover:text-gray-400'
@@ -448,7 +448,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays }) {
                               <span className="text-[9px] px-1 py-0 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30 shrink-0">VLAN {iface.vlan_id}</span>
                             )}
                           </div>
-                          <span className="text-[10px] font-mono text-gray-500">{iface.name}</span>
+                          <span className="text-xs font-mono text-gray-500">{iface.name}</span>
                         </div>
                       )
                     })

@@ -1,6 +1,7 @@
-import { useState, useCallback, lazy, Suspense } from 'react'
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react'
 import useTimeRange from '../hooks/useTimeRange'
 import { ACTION_STYLES, DIRECTION_ICONS, DIRECTION_COLORS } from '../utils'
+import { fetchSavedViews, createSavedView, deleteSavedView } from '../api'
 import SankeyChart from './SankeyChart'
 import TopIPPairs from './TopIPPairs'
 import HostSlidePanel from './HostSlidePanel'
@@ -15,11 +16,19 @@ const SUB_TABS = [
   { key: 'zone-matrix', label: 'Zone Matrix' },
 ]
 
+const SESSION_KEY = 'flowview_filters'
+
 export default function FlowView({ maxFilterDays }) {
   const [timeRange, setTimeRange, visibleRanges] = useTimeRange(maxFilterDays)
   const [activeActions, setActiveActions] = useState(ACTIONS)
   const [activeDirections, setActiveDirections] = useState(DIRECTIONS)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [dims, setDims] = useState(['src_ip', 'dst_port', 'dst_ip'])
+  const [topN, setTopN] = useState(15)
+  const [activeViewName, setActiveViewName] = useState(null)
+
+  // Saved views list
+  const [savedViews, setSavedViews] = useState([])
 
   // Sub-tab state
   const [activePanel, setActivePanel] = useState('sankey')
@@ -34,6 +43,111 @@ export default function FlowView({ maxFilterDays }) {
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [timeFrom, setTimeFrom] = useState(null)
   const [timeTo, setTimeTo] = useState(null)
+
+  // Ref to suppress badge clear during bulk-set operations (load, hydration, initial render)
+  const skipBadgeClear = useRef(true)
+  // Guard: don't save to sessionStorage until hydration is complete (prevents
+  // overwriting saved state with defaults on mount before state updates apply)
+  const isHydrated = useRef(false)
+
+  // Session persistence: hydrate on mount
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(SESSION_KEY)
+      if (stored) {
+        const s = JSON.parse(stored)
+        skipBadgeClear.current = true
+        if (s.dims) setDims(s.dims)
+        if (s.topN) setTopN(s.topN)
+        if (s.activeActions) setActiveActions(s.activeActions)
+        if (s.activeDirections) setActiveDirections(s.activeDirections)
+        if (s.timeRange) setTimeRange(s.timeRange)
+        if (s.timeFrom) setTimeFrom(s.timeFrom)
+        if (s.timeTo) setTimeTo(s.timeTo)
+        if (s.activeViewName) setActiveViewName(s.activeViewName)
+      }
+    } catch (e) {
+      console.warn('FlowView: invalid session state, resetting', e)
+      try { sessionStorage.removeItem(SESSION_KEY) } catch {}
+    }
+    // setTimeout defers past React's synchronous re-renders so the badge
+    // clear and save effects don't fire until hydrated state is committed
+    setTimeout(() => { isHydrated.current = true; skipBadgeClear.current = false }, 0)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Session persistence: save on every filter change (skip until hydrated)
+  useEffect(() => {
+    if (!isHydrated.current) return
+    try {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+        dims, topN, activeActions, activeDirections,
+        timeRange, timeFrom, timeTo, activeViewName,
+      }))
+    } catch { /* ignore quota errors */ }
+  }, [dims, topN, activeActions, activeDirections, timeRange, timeFrom, timeTo, activeViewName])
+
+  // Badge clear: any manual filter change clears the active view badge
+  useEffect(() => {
+    if (skipBadgeClear.current) return
+    setActiveViewName(null)
+  }, [activeActions, activeDirections, timeRange, timeFrom, timeTo, dims, topN])
+
+  const refreshSavedViews = useCallback(() => {
+    fetchSavedViews()
+      .then(d => setSavedViews(d.views || []))
+      .catch(err => console.error('Failed to fetch saved views:', err))
+  }, [])
+
+  // Fetch saved views on mount (initial population)
+  useEffect(() => {
+    refreshSavedViews()
+  }, [refreshSavedViews])
+
+  // Save view handler
+  const handleSaveView = useCallback((name) => {
+    const snapshot = {
+      dims, topN, activeActions, activeDirections,
+      timeRange: (timeFrom || timeTo) ? null : timeRange,
+      timeFrom: timeFrom || null,
+      timeTo: timeTo || null,
+    }
+    createSavedView(name, snapshot)
+      .then(() => {
+        skipBadgeClear.current = true
+        setActiveViewName(name)
+        setTimeout(() => { skipBadgeClear.current = false }, 0)
+        refreshSavedViews()
+      })
+      .catch(err => console.error('Failed to save view:', err))
+  }, [dims, topN, activeActions, activeDirections, timeRange, timeFrom, timeTo, refreshSavedViews])
+
+  // Load view handler
+  const handleLoadView = useCallback((view) => {
+    if (!view?.filters) return
+    const f = view.filters
+    skipBadgeClear.current = true
+    if (f.dims) setDims(f.dims)
+    if (f.topN) setTopN(f.topN)
+    if (f.activeActions) setActiveActions(f.activeActions)
+    if (f.activeDirections) setActiveDirections(f.activeDirections)
+    if (f.timeFrom || f.timeTo) {
+      setTimeFrom(f.timeFrom || null)
+      setTimeTo(f.timeTo || null)
+    } else {
+      setTimeFrom(null)
+      setTimeTo(null)
+      if (f.timeRange) setTimeRange(f.timeRange)
+    }
+    setActiveViewName(view.name)
+    setTimeout(() => { skipBadgeClear.current = false }, 0)
+  }, [setTimeRange])
+
+  // Delete view handler
+  const handleDeleteView = useCallback((id) => {
+    deleteSavedView(id)
+      .then(() => refreshSavedViews())
+      .catch(err => console.error('Failed to delete view:', err))
+  }, [refreshSavedViews])
 
   const toggleAction = (action) => {
     setActiveActions(prev => {
@@ -139,7 +253,7 @@ export default function FlowView({ maxFilterDays }) {
             <button
               key={action}
               onClick={() => toggleAction(action)}
-              className={`px-2 py-1 rounded text-xs font-medium uppercase border transition-all ${
+              className={`px-2 py-[3px] rounded text-xs font-medium uppercase border transition-all ${
                 activeActions.includes(action)
                   ? ACTION_STYLES[action]
                   : 'border-transparent text-gray-500 hover:text-gray-400'
@@ -203,6 +317,20 @@ export default function FlowView({ maxFilterDays }) {
           />
         </div>
 
+        {/* Saved view badge */}
+        {activeViewName && (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium
+              bg-teal-500 text-white cursor-pointer"
+            onClick={() => setActiveViewName(null)}
+            title="Clear saved view label"
+          >
+            <svg className="shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            {activeViewName} &times;
+          </button>
+        )}
+
         {activeFilterCount > 0 && (
           <button
             type="button"
@@ -216,6 +344,7 @@ export default function FlowView({ maxFilterDays }) {
               setZoneFilter(null)
               setExpandedRow(null)
               setHostSearchInput('')
+              setActiveViewName(null)
             }}
             className="shrink-0 text-xs text-gray-400 hover:text-gray-200 transition-colors"
           >
@@ -224,6 +353,7 @@ export default function FlowView({ maxFilterDays }) {
         )}
 
         <button
+          type="button"
           onClick={refresh}
           className="ml-auto shrink-0 px-2.5 py-1 rounded text-xs font-medium text-gray-400 hover:text-gray-200 transition-colors"
           title="Refresh data"
@@ -253,7 +383,7 @@ export default function FlowView({ maxFilterDays }) {
       {/* Main content — side by side: chart 65%, IP pairs 35% */}
       <div className="flex flex-col sm:flex-row gap-4 min-h-0 flex-1">
         {/* Left: active panel (60%) */}
-        <div className="w-full sm:w-[60%] flex-1 min-h-0 sm:flex-none sm:h-auto min-w-0 overflow-hidden">
+        <div className="w-full flex-1 min-h-0 sm:flex-[3_1_0%] sm:h-auto min-w-0 overflow-hidden">
           {activePanel === 'sankey' && (
             <SankeyChart
               filters={filters}
@@ -265,6 +395,15 @@ export default function FlowView({ maxFilterDays }) {
               onHostSearchChange={setHostSearchInput}
               onHostSearch={handleHostSearch}
               onHostSearchClear={() => { setExpandedRow(null); setHostSearchInput('') }}
+              dims={dims}
+              setDims={setDims}
+              topN={topN}
+              setTopN={setTopN}
+              onSaveView={handleSaveView}
+              onLoadView={handleLoadView}
+              savedViews={savedViews}
+              onDeleteView={handleDeleteView}
+              onRefreshViews={refreshSavedViews}
             />
           )}
           {activePanel === 'zone-matrix' && (
@@ -280,7 +419,7 @@ export default function FlowView({ maxFilterDays }) {
         </div>
 
         {/* Right: Top IP Pairs (40%) + slide-out host panel */}
-        <div className="w-full sm:w-[40%] flex-1 min-h-0 sm:flex-none sm:h-auto min-w-0 overflow-hidden flex flex-col relative">
+        <div className="w-full flex-1 min-h-0 sm:flex-[2_1_0%] sm:h-auto min-w-0 overflow-hidden flex flex-col relative">
           <TopIPPairs
             filters={filters}
             refreshKey={refreshKey}
@@ -289,6 +428,11 @@ export default function FlowView({ maxFilterDays }) {
             zoneFilter={zoneFilter}
             onClearZoneFilter={() => setZoneFilter(null)}
             onIpClick={handleIpClick}
+            onSaveView={handleSaveView}
+            onLoadView={handleLoadView}
+            savedViews={savedViews}
+            onDeleteView={handleDeleteView}
+            onRefreshViews={refreshSavedViews}
           />
           {expandedRow && (
             <HostSlidePanel

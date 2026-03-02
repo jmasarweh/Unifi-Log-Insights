@@ -215,6 +215,13 @@ class Database:
                 updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )""",
             "CREATE INDEX IF NOT EXISTS idx_unifi_devices_ip ON unifi_devices (ip)",
+            # Saved views for Flow View filter presets
+            """CREATE TABLE IF NOT EXISTS saved_views (
+                id          SERIAL PRIMARY KEY,
+                name        TEXT NOT NULL,
+                filters     JSONB NOT NULL,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )""",
             # Zone matrix aggregation (interface-to-interface traffic)
             """CREATE INDEX IF NOT EXISTS idx_logs_zone_matrix
                 ON logs (timestamp DESC, interface_in, interface_out, rule_action)

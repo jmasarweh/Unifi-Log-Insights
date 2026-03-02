@@ -50,9 +50,9 @@ export function DashboardSkeleton() {
 function StatCard({ label, value, color = 'text-white', sub }) {
   return (
     <div className="border border-gray-800 rounded-lg p-4 overflow-hidden">
-      <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">{label}</div>
       <div className={`text-xl sm:text-2xl font-semibold ${color}`}>{formatNumber(value)}</div>
-      {sub && <div className="text-[10px] text-gray-400 mt-1">{sub}</div>}
+      {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
     </div>
   )
 }
@@ -218,7 +218,7 @@ function formatTimeAgo(isoStr) {
 function TopList({ title, items, renderItem }) {
   return (
     <div className="border border-gray-800 rounded-lg p-4">
-      <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-3">{title}</div>
+      <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">{title}</div>
       {items.length === 0 ? (
         <div className="text-gray-400 text-xs py-4 text-center">No data</div>
       ) : (
@@ -327,7 +327,7 @@ export default function Dashboard({ maxFilterDays }) {
       {/* Direction breakdown */}
       {Object.keys(stats.by_direction).length > 0 && (
         <div className="border border-gray-800 rounded-lg p-4">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-3">Traffic Direction</div>
+          <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Traffic Direction</div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:gap-4">
             {Object.entries(stats.by_direction).map(([dir, count]) => {
               const colors = {
@@ -341,7 +341,7 @@ export default function Dashboard({ maxFilterDays }) {
                   <div className={`text-base sm:text-lg font-semibold ${colors[dir] || 'text-gray-300'}`}>
                     {formatNumber(count)}
                   </div>
-                  <div className="text-[10px] text-gray-400 uppercase">{dir === 'inter_vlan' ? 'VLAN' : dir}</div>
+                  <div className="text-xs text-gray-400 uppercase">{dir === 'inter_vlan' ? 'VLAN' : dir}</div>
                 </div>
               )
             })}
@@ -351,22 +351,22 @@ export default function Dashboard({ maxFilterDays }) {
 
       {/* Logs over time chart */}
       <div className="border border-gray-800 rounded-lg p-4">
-        <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-3">Traffic Over Time</div>
+        <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Traffic Over Time</div>
         <LogsOverTimeChart data={stats.logs_over_time || stats.logs_per_hour} timeRange={timeRange} loading={loading} />
       </div>
 
       {/* Traffic by action chart */}
       <div className="border border-gray-800 rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider">Traffic by Action</div>
+          <div className="text-xs text-gray-400 uppercase tracking-wider">Traffic by Action</div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="flex items-center gap-1 text-[10px] text-green-400">
+            <span className="flex items-center gap-1 text-xs text-green-400">
               <span className="w-2 h-2 rounded-full bg-green-500" /> Allowed
             </span>
-            <span className="flex items-center gap-1 text-[10px] text-red-400">
+            <span className="flex items-center gap-1 text-xs text-red-400">
               <span className="w-2 h-2 rounded-full bg-red-500" /> Blocked
             </span>
-            <span className="flex items-center gap-1 text-[10px] text-amber-400">
+            <span className="flex items-center gap-1 text-xs text-amber-400">
               <span className="w-2 h-2 rounded-full bg-amber-500" /> Redirect
             </span>
           </div>
@@ -387,7 +387,7 @@ export default function Dashboard({ maxFilterDays }) {
                   {item.country && <span className="ml-1.5">{<FlagIcon code={item.country} />}</span>}
                 </span>
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-400 text-[10px]">{formatNumber(item.count)}×</span>
+                  <span className="text-gray-400 text-xs">{formatNumber(item.count)}×</span>
                   <span className={`font-medium ${
                     item.threat_score >= 75 ? 'text-red-400' : item.threat_score >= 50 ? 'text-orange-400' : 'text-yellow-400'
                   }`}>
@@ -396,21 +396,21 @@ export default function Dashboard({ maxFilterDays }) {
                 </div>
               </div>
               {(item.asn || item.city) && (
-                <div className="text-[10px] text-gray-400 truncate">
+                <div className="text-xs text-gray-400 truncate">
                   {[item.asn, item.city].filter(Boolean).join(' · ')}
                 </div>
               )}
               {item.rdns && (
-                <div className="text-[10px] text-gray-400 truncate">{item.rdns}</div>
+                <div className="text-xs text-gray-400 truncate">{item.rdns}</div>
               )}
               <div className="flex items-center justify-between">
                 {decodeThreatCategories(item.threat_categories) ? (
-                  <div className="text-[10px] text-purple-400/70 truncate">
+                  <div className="text-xs text-purple-400/70 truncate">
                     {decodeThreatCategories(item.threat_categories)}
                   </div>
                 ) : <div />}
                 {item.last_seen && (
-                  <div className="text-[10px] text-gray-400 shrink-0">{formatTimeAgo(item.last_seen)}</div>
+                  <div className="text-xs text-gray-400 shrink-0">{formatTimeAgo(item.last_seen)}</div>
                 )}
               </div>
             </div>
@@ -429,7 +429,7 @@ export default function Dashboard({ maxFilterDays }) {
                 </span>
                 <span className="text-gray-400">{formatNumber(item.count)}</span>
               </div>
-              {item.asn && <div className="text-[10px] text-gray-400">{item.asn}</div>}
+              {item.asn && <div className="text-xs text-gray-400">{item.asn}</div>}
               <MiniBar data={item.count} maxVal={maxBlocked} color="bg-red-500/60" />
             </div>
           )}
@@ -446,7 +446,7 @@ export default function Dashboard({ maxFilterDays }) {
                     <div className="flex items-center gap-1">
                       <span className="text-gray-200 text-[12px] truncate" title={item.device_name}>{item.device_name}</span>
                       {item.vlan != null && (
-                        <span className="text-[10px] px-1 py-0 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30 shrink-0">
+                        <span className="text-xs px-1 py-0 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30 shrink-0">
                           VLAN {item.vlan}
                         </span>
                       )}
@@ -472,7 +472,7 @@ export default function Dashboard({ maxFilterDays }) {
                     <div className="flex items-center gap-1">
                       <span className="text-gray-200 text-[12px] truncate" title={item.device_name}>{item.device_name}</span>
                       {item.vlan != null && (
-                        <span className="text-[10px] px-1 py-0 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30 shrink-0">
+                        <span className="text-xs px-1 py-0 rounded bg-violet-500/15 text-violet-400 border border-violet-500/30 shrink-0">
                           VLAN {item.vlan}
                         </span>
                       )}
@@ -499,14 +499,14 @@ export default function Dashboard({ maxFilterDays }) {
                 </span>
                 <span className="text-gray-400">{formatNumber(item.count)}</span>
               </div>
-              {item.asn && <div className="text-[10px] text-gray-400">{item.asn}</div>}
+              {item.asn && <div className="text-xs text-gray-400">{item.asn}</div>}
               <MiniBar data={item.count} maxVal={maxAllowedDest} color="bg-green-500/60" />
             </div>
           )}
         />
 
         <div className="border border-gray-800 rounded-lg p-4">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-3">Top Countries</div>
+          <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Top Countries</div>
           {(() => {
             const blocked = stats.top_blocked_countries || []
             const allowed = stats.top_allowed_countries || []
@@ -514,7 +514,7 @@ export default function Dashboard({ maxFilterDays }) {
             return (
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <div className="text-[10px] text-red-400/70 mb-1">Blocked</div>
+                  <div className="text-xs text-red-400/70 mb-1">Blocked</div>
                   {blocked.slice(0, 10).map((item, i) => (
                     <div key={i} className="flex items-center justify-between text-xs">
                       <span className="text-gray-300 truncate mr-2">
@@ -526,7 +526,7 @@ export default function Dashboard({ maxFilterDays }) {
                   {blocked.length === 0 && <div className="text-gray-500 text-xs">—</div>}
                 </div>
                 <div className="space-y-1.5">
-                  <div className="text-[10px] text-green-400/70 mb-1">Allowed</div>
+                  <div className="text-xs text-green-400/70 mb-1">Allowed</div>
                   {allowed.slice(0, 10).map((item, i) => (
                     <div key={i} className="flex items-center justify-between text-xs">
                       <span className="text-gray-300 truncate mr-2">

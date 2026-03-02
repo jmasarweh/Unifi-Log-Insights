@@ -293,3 +293,55 @@ def build_log_query(
 def _escape_like(value: str) -> str:
     """Escape LIKE wildcard characters in user input."""
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+# ── Saved view filter validation ─────────────────────────────────────────────
+
+# Canonical dimension set — single source of truth for flows + saved view validation
+ALLOWED_DIMENSIONS = {
+    'src_ip', 'dst_ip', 'dst_port', 'protocol',
+    'service_name', 'direction', 'interface_in', 'interface_out',
+}
+_VALID_ACTIONS = {'allow', 'block'}
+_VALID_DIRECTIONS = {'inbound', 'outbound', 'inter_vlan', 'nat', 'local', 'vpn'}
+
+
+def validate_view_filters(filters: dict) -> str | None:
+    """Validate saved view filters against canonical backend enums.
+
+    Returns None if valid, or an error message string if invalid.
+    Shared by routes/views.py and routes/setup.py (config import).
+    """
+    if not isinstance(filters, dict):
+        return "filters must be a JSON object"
+
+    dims = filters.get('dims')
+    if not isinstance(dims, list) or len(dims) != 3:
+        return "dims must be an array of exactly 3 values"
+    if len(set(dims)) != 3:
+        return "dims must contain 3 unique values"
+    for d in dims:
+        if d not in ALLOWED_DIMENSIONS:
+            return f"Invalid dimension: {d}. Allowed: {sorted(ALLOWED_DIMENSIONS)}"
+
+    top_n = filters.get('topN')
+    if not isinstance(top_n, int) or top_n < 3 or top_n > 50:
+        return "topN must be an integer between 3 and 50"
+
+    actions = filters.get('activeActions')
+    if not isinstance(actions, list) or not actions:
+        return "activeActions must be a non-empty array"
+    if not set(actions).issubset(_VALID_ACTIONS):
+        return f"activeActions must be a subset of {sorted(_VALID_ACTIONS)}"
+
+    directions = filters.get('activeDirections')
+    if not isinstance(directions, list) or not directions:
+        return "activeDirections must be a non-empty array"
+    if not set(directions).issubset(_VALID_DIRECTIONS):
+        return f"activeDirections must be a subset of {sorted(_VALID_DIRECTIONS)}"
+
+    time_range = filters.get('timeRange')
+    if time_range is not None and time_range not in VALID_TIME_RANGES:
+        return f"timeRange must be one of {sorted(VALID_TIME_RANGES)} or null"
+
+    return None

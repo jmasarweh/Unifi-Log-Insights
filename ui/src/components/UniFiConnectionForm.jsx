@@ -163,7 +163,7 @@ export default function UniFiConnectionForm({
             className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-600 text-sm text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none disabled:opacity-50"
           />
           {envHost && (
-            <p className="text-[10px] text-gray-500 mt-1">Set by UNIFI_HOST environment variable</p>
+            <p className="text-xs text-gray-500 mt-1">Set by UNIFI_HOST environment variable</p>
           )}
         </div>
 
@@ -212,14 +212,14 @@ export default function UniFiConnectionForm({
                 {savedUsername && !username.trim() && (
                   <button
                     onClick={() => { setUseSavedCredentials(true); setResult(null); setError(null) }}
-                    className="text-[10px] text-blue-400 hover:text-blue-300"
+                    className="text-xs text-blue-400 hover:text-blue-300"
                   >
                     Use saved credentials
                   </button>
                 )}
               </>
             )}
-            <p className="text-[10px] text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 mt-1">
               Self-hosted controllers require username/password authentication
             </p>
           </div>
@@ -250,14 +250,14 @@ export default function UniFiConnectionForm({
                 {savedApiKey && !apiKey.trim() && (
                   <button
                     onClick={() => { setUseSaved(true); setResult(null); setError(null) }}
-                    className="text-[10px] text-blue-400 hover:text-blue-300 mt-1"
+                    className="text-xs text-blue-400 hover:text-blue-300 mt-1"
                   >
                     Use saved key
                   </button>
                 )}
               </>
             )}
-            <p className="text-[10px] text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 mt-1">
               Network &rarr; Settings &rarr; Control Plane &rarr; Integrations &rarr; Your API Keys &rarr; Create API Key
               {host.trim() && (
                 <>

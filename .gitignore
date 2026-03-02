@@ -47,3 +47,4 @@ docker-compose.yml
 config-export.json
 CLAUDE.md
 .coderabbit.yaml
+pull_logs.py

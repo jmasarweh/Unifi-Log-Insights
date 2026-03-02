@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { fetchZoneMatrix } from '../api'
 import { formatNumber } from '../utils'
+import FullscreenToggle from './FullscreenToggle'
 
 const THEMES = {
   dark: {
@@ -44,12 +45,15 @@ const getTier = (total, maxTotal, theme) => {
 }
 
 // Shared card shell (matches header alignment with TopIPPairs)
-function Shell({ children, headerExtra }) {
+function Shell({ children, headerContent, isFullscreen, onToggleFullscreen }) {
   return (
-    <div className="border border-gray-800 rounded-lg flex flex-col h-full overflow-hidden">
-      <div className="flex h-11 items-center justify-between px-4 border-b border-gray-800 shrink-0">
-        <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Zone Traffic Matrix</h3>
-        {headerExtra}
+    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-gray-950' : 'border border-gray-800 rounded-lg'} flex flex-col h-full overflow-hidden`}>
+      <div className="flex h-11 items-center gap-3 px-4 border-b border-gray-800 shrink-0">
+        <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider shrink-0">Zone Traffic Matrix</h3>
+        {headerContent}
+        {onToggleFullscreen && (
+          <FullscreenToggle isFullscreen={isFullscreen} onToggle={onToggleFullscreen} className="ml-auto" />
+        )}
       </div>
       {children}
     </div>
@@ -61,6 +65,8 @@ export default function ZoneMatrix({ filters, refreshKey, onCellClick, activeCel
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [tooltip, setTooltip] = useState(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const toggleFullscreen = () => setIsFullscreen(f => !f)
   const [themeMode, setThemeMode] = useState(() => {
     if (typeof document === 'undefined') return 'dark'
     return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
@@ -88,9 +94,9 @@ export default function ZoneMatrix({ filters, refreshKey, onCellClick, activeCel
     return () => obs.disconnect()
   }, [])
 
-  if (loading) return <Shell><div className="flex items-center justify-center h-48 text-xs text-gray-500">Loading zone matrix...</div></Shell>
-  if (error) return <Shell><div className="flex items-center justify-center h-48 text-xs text-red-400">{error}</div></Shell>
-  if (!data?.cells?.length) return <Shell><div className="flex items-center justify-center h-48 text-xs text-gray-500">No zone traffic data for this time range</div></Shell>
+  if (loading) return <Shell isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen}><div className="flex items-center justify-center h-48 text-xs text-gray-500">Loading zone matrix...</div></Shell>
+  if (error) return <Shell isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen}><div className="flex items-center justify-center h-48 text-xs text-red-400">{error}</div></Shell>
+  if (!data?.cells?.length) return <Shell isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen}><div className="flex items-center justify-center h-48 text-xs text-gray-500">No zone traffic data for this time range</div></Shell>
 
   const { cells, interfaces, labels } = data
   const cellMap = new Map()
@@ -117,7 +123,7 @@ export default function ZoneMatrix({ filters, refreshKey, onCellClick, activeCel
   }
 
   return (
-    <Shell headerExtra={<span className="text-[11px]" style={{ color: theme.mutedText }}>Click a zone pair to filter</span>}>
+    <Shell headerContent={<span className="portrait:hidden text-[11px]" style={{ color: theme.mutedText }}>Click a zone pair to filter</span>} isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen}>
       <div className="overflow-auto flex-1 min-h-0 scroll-fade p-4">
         <table className="w-full border-separate text-[11px]" style={{ borderSpacing: 3 }}>
           <tbody>

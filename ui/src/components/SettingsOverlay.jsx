@@ -70,6 +70,7 @@ export default function SettingsOverlay({ onClose, startInReconfig, unlabeledVpn
   const [reconfigMode, setReconfigMode] = useState(!!startInReconfig)
   const [wizardPath, setWizardPath] = useState(null)
   const [showNotes, setShowNotes] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const outdated = latestRelease && isNewerVersion(latestRelease.tag, version)
 
   useEffect(() => {
@@ -142,15 +143,28 @@ export default function SettingsOverlay({ onClose, startInReconfig, unlabeledVpn
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-2 border-b border-gray-800 bg-gray-950 shrink-0">
         <div className="flex items-center gap-4">
+          {/* Mobile sidebar toggle */}
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(v => !v)}
+            className="md:hidden p-1.5 -ml-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors"
+            aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+            aria-expanded={sidebarOpen}
+          >
+            <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 10.5a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z" clipRule="evenodd" />
+            </svg>
+          </button>
           <div className="flex items-center gap-2">
-            <svg viewBox="0 0 24 24" className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor">
+            <svg viewBox="0 0 24 24" className="hidden md:block w-6 h-6 text-blue-400" fill="none" stroke="currentColor" aria-hidden="true">
               <circle cx="12" cy="12" r="10.5" strokeWidth="1.5" strokeOpacity="0.4" />
               <path d="M8.5 7.5v5.5a3.5 3.5 0 0 0 7 0V7.5" strokeWidth="2.2" strokeLinecap="round" />
             </svg>
-            <span className="text-sm font-semibold text-gray-200">UniFi Log Insight</span>
+            <span className="hidden md:inline text-sm font-semibold text-gray-200">UniFi Log Insight</span>
           </div>
           <span className="text-xs text-gray-400 flex items-center">
-            Settings
+            <span className="hidden md:inline">Settings</span>
+            <span className="md:hidden text-gray-200">{sections.find(s => s.id === activeSection)?.label || 'Settings'}</span>
             {reconfigMode && (
               <>
                 <span className="text-gray-600 mx-1">&rsaquo;</span>
@@ -168,25 +182,34 @@ export default function SettingsOverlay({ onClose, startInReconfig, unlabeledVpn
           </span>
         </div>
         <button
+          type="button"
           onClick={onClose}
           className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors"
+          aria-label="Close settings"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5" aria-hidden="true">
             <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
           </svg>
         </button>
       </header>
 
       {/* Sidebar + Content */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        <nav className="w-52 shrink-0 border-r border-gray-800 bg-gray-950 py-4 overflow-y-auto flex flex-col">
+      <main className="flex-1 flex overflow-hidden relative">
+        {/* Mobile sidebar backdrop */}
+        {sidebarOpen && (
+          <div className="md:hidden fixed inset-0 z-40 bg-black/50" role="presentation" aria-hidden="true" onClick={() => setSidebarOpen(false)} />
+        )}
+
+        {/* Sidebar — always visible on desktop, slide-over on mobile */}
+        {/* top-[41px] offsets below the fixed header (h-[41px] = py-2 + content + border) */}
+        <nav className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static top-[41px] bottom-0 left-0 z-50 md:z-auto w-52 shrink-0 border-r border-gray-800 bg-gray-950 py-4 overflow-y-auto flex flex-col transition-transform duration-200 ease-in-out`}>
           {sections.map(section => (
             <button
               key={section.id}
               onClick={() => {
                 if (reconfigMode) { setReconfigMode(false); setWizardPath(null) }
                 setActiveSection(section.id)
+                setSidebarOpen(false)
               }}
               className={`w-full flex items-center gap-3 px-5 py-2.5 text-sm transition-colors ${
                 activeSection === section.id
@@ -227,7 +250,7 @@ export default function SettingsOverlay({ onClose, startInReconfig, unlabeledVpn
         </nav>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto py-8 px-6">
+        <div className="flex-1 overflow-y-auto py-4 px-3 md:py-8 md:px-6">
           <div className="max-w-6xl mx-auto">
             {reconfigMode ? (
               <SetupWizard

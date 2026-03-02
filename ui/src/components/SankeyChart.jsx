@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { sankey as d3Sankey, sankeyLinkHorizontal } from 'd3-sankey'
 import { fetchFlowGraph } from '../api'
 import { formatNumber, formatServiceName, getInterfaceName } from '../utils'
+import FullscreenToggle from './FullscreenToggle'
 
 const DIMENSION_OPTIONS = [
   { value: 'src_ip', label: 'Source IP' },
@@ -44,6 +45,7 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [tooltip, setTooltip] = useState(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const svgRef = useRef(null)
   const containerRef = useRef(null)
   const [chartWidth, setChartWidth] = useState(0)
@@ -104,8 +106,9 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
 
     if (!links.length) return null
 
-    const width = Math.max(400, chartWidth - 24) // subtract p-3 padding (12px each side)
+    const width = Math.max(280, chartWidth - 24) // subtract p-3 padding (12px each side)
     const height = Math.max(300, nodes.length * 20)
+    const labelMargin = width < 400 ? 20 : 40
 
     try {
       const generator = d3Sankey()
@@ -113,7 +116,7 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
         .nodeWidth(12)
         .nodePadding(6)
         .nodeSort(null)
-        .extent([[60, HEADER_HEIGHT + 4], [width - 60, height - 1]])
+        .extent([[labelMargin, HEADER_HEIGHT + 4], [width - labelMargin, height - 1]])
 
       const graph = generator({ nodes, links })
       return { ...graph, width, height }
@@ -269,17 +272,17 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
   }
 
   return (
-    <div className="border border-gray-800 rounded-lg flex flex-col h-full overflow-hidden">
+    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-gray-950' : 'border border-gray-800 rounded-lg'} flex flex-col h-full overflow-hidden`}>
       {/* Header — single row, matched height with TopIPPairs */}
-      <div className="flex h-11 items-center gap-3 px-4 border-b border-gray-800 shrink-0 overflow-x-auto">
-        <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider mr-1">Flow Graph</h3>
+      <div className="flex flex-wrap h-auto min-h-[2.75rem] items-center gap-2 sm:gap-3 px-4 py-2 sm:py-0 border-b border-gray-800 shrink-0 overflow-x-auto">
+        <h3 className="hidden sm:block text-xs font-semibold text-gray-300 uppercase tracking-wider mr-1">Flow Graph</h3>
 
-        <div className="h-5 w-px bg-gray-700" />
+        <div className="hidden sm:block h-5 w-px bg-gray-700" />
 
         {/* Dimension selectors with labels */}
         {dims.map((d, i) => (
           <div key={i} className="flex items-center gap-1.5">
-            <span className="text-[10px] text-gray-500 uppercase tracking-wider">{['Left', 'Center', 'Right'][i]}</span>
+            <span className="hidden sm:inline text-[10px] text-gray-500 uppercase tracking-wider">{['Left', 'Center', 'Right'][i]}</span>
             <select
               value={d}
               onChange={e => setDim(i, e.target.value)}
@@ -310,14 +313,16 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
         </div>
 
         {data?.meta?.capped && (
-          <span className="text-[10px] text-amber-400 ml-auto">
+          <span className="text-[10px] text-amber-400">
             Capped to top {data.meta.applied_top_n} per dimension
           </span>
         )}
+
+        <FullscreenToggle isFullscreen={isFullscreen} onToggle={() => setIsFullscreen(f => !f)} className="ml-auto" />
       </div>
 
-      {/* Chart — scrollable vertically, no horizontal scroll */}
-      <div className="relative p-3 overflow-y-auto overflow-x-hidden min-h-0 flex-1" ref={containerRef}>
+      {/* Chart — scrollable vertically and horizontally (originally vertical-only; horizontal added for mobile) */}
+      <div className="relative p-3 overflow-y-auto overflow-x-auto min-h-0 flex-1" ref={containerRef}>
         {loading ? (
           <div className="flex items-center justify-center h-48 text-xs text-gray-500">Loading flow data...</div>
         ) : error ? (

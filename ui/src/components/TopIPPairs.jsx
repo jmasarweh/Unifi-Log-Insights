@@ -114,20 +114,13 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
       ) : (
         <div className="overflow-y-auto overflow-x-hidden min-h-0 flex-1 text-xs">
           <table className="w-full table-fixed">
-            <colgroup>
-              <col className="w-[25%]" />
-              <col className="w-[25%]" />
-              <col className="w-[16%]" />
-              <col className="w-[14%]" />
-              <col className="w-[20%]" />
-            </colgroup>
             <thead>
               <tr className="text-[10px] text-gray-500 uppercase tracking-wider">
-                <th className="text-left px-2 py-2 font-medium whitespace-nowrap">Source</th>
-                <th className="text-left px-2 py-2 font-medium whitespace-nowrap">Destination</th>
-                <th className="text-left px-3 py-2 font-medium whitespace-nowrap">Port/Proto</th>
-                <th className="text-left px-3 py-2 font-medium whitespace-nowrap">Service</th>
-                <th className="text-left px-3 py-2 font-medium whitespace-nowrap">Action</th>
+                <th className="text-left px-2 py-2 font-medium whitespace-nowrap w-[30%] sm:w-[25%]">Source</th>
+                <th className="text-left px-2 py-2 font-medium whitespace-nowrap w-[30%] sm:w-[25%]">Destination</th>
+                <th className="text-left px-3 py-2 font-medium whitespace-nowrap w-[20%] sm:w-[16%]">Port/Proto</th>
+                <th className="text-left px-3 py-2 font-medium whitespace-nowrap hidden sm:table-cell sm:w-[14%]">Service</th>
+                <th className="text-left px-3 py-2 font-medium whitespace-nowrap w-[20%] sm:w-[20%]">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -157,7 +150,7 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
                   <td className="px-3 py-1.5 text-gray-300 font-mono text-[11px] whitespace-nowrap">
                     {p.dst_port}/{(p.protocol || '').toUpperCase()}
                   </td>
-                  <td className="px-3 py-1.5 text-gray-400">
+                  <td className="px-3 py-1.5 text-gray-400 hidden sm:table-cell">
                     <div className="truncate" title={formatServiceName(p.service_name)}>
                       {formatServiceName(p.service_name)}
                     </div>

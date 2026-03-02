@@ -328,7 +328,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
   )
 
   return (
-    <div className={embedded ? '' : 'h-screen flex flex-col bg-gray-950'}>
+    <div className={embedded ? '' : 'h-dvh flex flex-col bg-gray-950'}>
       {embedded ? (
         <div className="mb-6">{stepIndicator}</div>
       ) : (

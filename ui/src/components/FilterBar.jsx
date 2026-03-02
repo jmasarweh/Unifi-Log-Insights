@@ -214,20 +214,23 @@ export default function FilterBar({ filters, onChange, maxFilterDays }) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 lg:space-y-0">
       {/* Mobile filter toggle */}
       <button
+        type="button"
         onClick={() => setFiltersExpanded(v => !v)}
-        className="sm:hidden flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors w-full justify-between"
+        className="lg:hidden flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors w-full justify-between"
+        aria-expanded={filtersExpanded}
+        aria-controls="log-filters-panel"
       >
         <span>Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}</span>
-        <svg className={`w-3.5 h-3.5 transition-transform ${filtersExpanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+        <svg className={`w-3.5 h-3.5 transition-transform ${filtersExpanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false">
           <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
         </svg>
       </button>
 
       {/* Filter content — always visible on desktop, collapsible on mobile */}
-      <div className={`${filtersExpanded ? 'block' : 'hidden'} sm:block space-y-3`}>
+      <div id="log-filters-panel" className={`${filtersExpanded ? 'block' : 'hidden'} lg:block space-y-3`}>
       {/* Row 1: Log types + time range */}
       <div className="flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-1.5">

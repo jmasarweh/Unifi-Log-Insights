@@ -49,9 +49,9 @@ export function DashboardSkeleton() {
 
 function StatCard({ label, value, color = 'text-white', sub }) {
   return (
-    <div className="border border-gray-800 rounded-lg p-4">
+    <div className="border border-gray-800 rounded-lg p-4 overflow-hidden">
       <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">{label}</div>
-      <div className={`text-2xl font-semibold ${color}`}>{formatNumber(value)}</div>
+      <div className={`text-xl sm:text-2xl font-semibold ${color}`}>{formatNumber(value)}</div>
       {sub && <div className="text-[10px] text-gray-400 mt-1">{sub}</div>}
     </div>
   )
@@ -275,9 +275,9 @@ export default function Dashboard({ maxFilterDays }) {
     : 0
 
   return (
-    <div className="p-4 space-y-4 overflow-auto max-h-full">
+    <div className="pt-2.5 px-4 pb-4 space-y-4 overflow-auto max-h-full">
       {/* Time range selector */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 flex-wrap">
         {visibleRanges.map(tr => (
           <button
             key={tr}
@@ -328,7 +328,7 @@ export default function Dashboard({ maxFilterDays }) {
       {Object.keys(stats.by_direction).length > 0 && (
         <div className="border border-gray-800 rounded-lg p-4">
           <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-3">Traffic Direction</div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:gap-4">
             {Object.entries(stats.by_direction).map(([dir, count]) => {
               const colors = {
                 inbound: 'text-red-400',
@@ -338,7 +338,7 @@ export default function Dashboard({ maxFilterDays }) {
               }
               return (
                 <div key={dir} className="text-center">
-                  <div className={`text-lg font-semibold ${colors[dir] || 'text-gray-300'}`}>
+                  <div className={`text-base sm:text-lg font-semibold ${colors[dir] || 'text-gray-300'}`}>
                     {formatNumber(count)}
                   </div>
                   <div className="text-[10px] text-gray-400 uppercase">{dir === 'inter_vlan' ? 'VLAN' : dir}</div>
@@ -359,7 +359,7 @@ export default function Dashboard({ maxFilterDays }) {
       <div className="border border-gray-800 rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="text-[10px] text-gray-400 uppercase tracking-wider">Traffic by Action</div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span className="flex items-center gap-1 text-[10px] text-green-400">
               <span className="w-2 h-2 rounded-full bg-green-500" /> Allowed
             </span>

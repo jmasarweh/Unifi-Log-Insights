@@ -14,10 +14,10 @@ import { loadInterfaceLabels } from './utils'
 import { isVpnInterface } from './vpnUtils'
 
 const TABS = [
-  { id: 'logs', label: 'Log Stream' },
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'flow-view', label: 'Flow View' },
-  { id: 'threat-map', label: 'Threat Map' },
+  { id: 'logs', label: 'Log Stream', shortLabel: 'Stream' },
+  { id: 'dashboard', label: 'Dashboard', shortLabel: 'Dashboard' },
+  { id: 'flow-view', label: 'Flow View', shortLabel: 'Flow' },
+  { id: 'threat-map', label: 'Threat Map', shortLabel: 'Map' },
 ]
 
 function formatShortDate(isoStr) {
@@ -80,6 +80,8 @@ export default function App() {
   const [unlabeledVpn, setUnlabeledVpn] = useState([])
   const [showWanToast, setShowWanToast] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('ui_theme') || 'dark')
+  const [showStatusTooltip, setShowStatusTooltip] = useState(false)
+  const statusRef = useRef(null)
 
   useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -147,6 +149,18 @@ export default function App() {
     }, 15000)
     return () => clearInterval(interval)
   }, [])
+
+  // Close status tooltip on click outside
+  useEffect(() => {
+    if (!showStatusTooltip) return
+    const handler = (e) => {
+      if (statusRef.current && !statusRef.current.contains(e.target)) {
+        setShowStatusTooltip(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showStatusTooltip])
 
   // Detect unlabeled VPN interfaces and show toast
   useEffect(() => {
@@ -239,7 +253,7 @@ export default function App() {
 
   if (!configLoaded) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-950 text-gray-300 text-sm">
+      <div className="flex items-center justify-center h-dvh bg-gray-950 text-gray-300 text-sm">
         Loading configuration...
       </div>
     )
@@ -273,7 +287,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-950">
+    <div className="h-dvh flex flex-col bg-gray-950">
       {/* Upgrade modal */}
       {showUpgradeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -403,29 +417,32 @@ export default function App() {
 
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-2 border-b border-gray-800 bg-gray-950 shrink-0">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0 overflow-x-auto flex-nowrap [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
           {/* Logo */}
-          <div className="flex items-center gap-2">
-            <svg viewBox="0 0 24 24" className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor">
+          <div className="flex items-center gap-2 shrink-0">
+            <svg viewBox="0 0 24 24" className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" role="img" aria-labelledby="app-logo-title">
+              <title id="app-logo-title">UniFi Log Insight</title>
               <circle cx="12" cy="12" r="10.5" strokeWidth="1.5" strokeOpacity="0.4" />
               <path d="M8.5 7.5v5.5a3.5 3.5 0 0 0 7 0V7.5" strokeWidth="2.2" strokeLinecap="round" />
             </svg>
-            <span className="text-sm font-semibold text-gray-200">UniFi Log Insight</span>
+            <span className="hidden sm:inline text-sm font-semibold text-gray-200">UniFi Log Insight</span>
           </div>
 
           {/* Tabs */}
-          <nav className="flex items-center gap-0.5 ml-4">
+          <nav className="flex items-center gap-0.5 ml-0 sm:ml-4">
             {TABS.map(tab => (
               <button
+                type="button"
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${
+                className={`px-2 sm:px-3 py-2 sm:py-1.5 rounded text-[11px] sm:text-xs font-medium transition-all min-h-[44px] sm:min-h-0 ${
                   activeTab === tab.id
                     ? 'bg-gray-800 text-white'
                     : 'text-gray-400 hover:text-gray-200'
                 }`}
               >
-                {tab.label}
+                <span className="hidden sm:inline">{tab.label}</span>
+                <span className="sm:hidden">{tab.shortLabel}</span>
               </button>
             ))}
           </nav>
@@ -435,7 +452,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           {health && (
             <>
-              <div className="hidden sm:flex items-center gap-3">
+              <div className="hidden md:flex items-center gap-3">
                 <span className="text-[10px] text-gray-400">
                   AbuseIPDB: {formatAbuseIPDB(health.abuseipdb)}
                 </span>
@@ -452,9 +469,29 @@ export default function App() {
                   {health.total_logs?.toLocaleString()} logs
                 </span>
               </div>
-              <span className={`w-1.5 h-1.5 rounded-full ${
-                health.status === 'ok' ? 'bg-emerald-400' : 'bg-red-400'
-              }`} />
+              <div className="relative" ref={statusRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowStatusTooltip(v => !v)}
+                  className="flex items-center justify-center w-6 h-6 -m-1"
+                  aria-label="System status"
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    health.status === 'ok' ? 'bg-emerald-400' : 'bg-red-400'
+                  }`} />
+                </button>
+                {showStatusTooltip && (
+                  <div className="md:hidden absolute right-0 top-full mt-1 w-52 bg-gray-950 border border-gray-700 rounded-lg shadow-lg z-30 p-3">
+                    <div className="text-[10px] text-gray-300 font-medium mb-2">System Status</div>
+                    <div className="text-[10px] text-gray-400 space-y-1">
+                      <div>AbuseIPDB: {formatAbuseIPDB(health.abuseipdb)}</div>
+                      <div>MaxMind: {formatShortDate(health.maxmind_last_update)}</div>
+                      <div>Next pull: {formatShortDate(health.maxmind_next_update)}</div>
+                      <div>{health.total_logs?.toLocaleString()} logs</div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )}
           <button

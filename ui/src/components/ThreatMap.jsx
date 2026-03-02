@@ -212,6 +212,7 @@ export default function ThreatMap({ maxFilterDays, flyTo, onFlyToDone }) {
   const [timeRange, setTimeRange, visibleRanges] = useTimeRange(maxFilterDays)
   const [mode, setMode] = useState('threats')
   const [view, setView] = useState('heatmap')
+  const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [geoData, setGeoData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [sidebarLocation, setSidebarLocation] = useState(null)
@@ -459,72 +460,105 @@ export default function ThreatMap({ maxFilterDays, flyTo, onFlyToDone }) {
 
   const summary = geoData?.summary
 
+  // Count active non-default filters for mobile badge
+  const activeFilterCount = [
+    timeRange !== '24h',
+    mode !== 'threats',
+    view !== 'heatmap',
+  ].filter(Boolean).length
+
   return (
     <div className="h-full flex flex-col">
       {/* Controls bar */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-800 shrink-0 flex-wrap">
-        {/* Time range */}
-        <div className="flex items-center gap-0.5">
-          {visibleRanges.map(tr => (
-            <button
-              key={tr}
-              onClick={() => setTimeRange(tr)}
-              aria-pressed={timeRange === tr}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-                timeRange === tr ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              {tr}
-            </button>
-          ))}
-        </div>
+      <div className="border-b border-gray-800 shrink-0">
+        {/* Mobile filter toggle */}
+        <button
+          type="button"
+          onClick={() => setFiltersExpanded(v => !v)}
+          className="lg:hidden flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-gray-300 hover:bg-gray-800/30 transition-colors w-full justify-between"
+          aria-expanded={filtersExpanded}
+          aria-controls="threat-filters-panel"
+        >
+          <span className="flex items-center gap-2">
+            <span>Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}</span>
+            {loading && <span className="text-blue-400 text-[10px]">Loading...</span>}
+            {!loading && summary && (
+              <span className="text-[10px] text-gray-500">{formatNumber(summary.total_events)} events</span>
+            )}
+          </span>
+          <svg className={`w-3.5 h-3.5 transition-transform ${filtersExpanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false">
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </button>
 
-        <span className="text-gray-700">|</span>
+        {/* Filter content — always visible on desktop, collapsible on mobile */}
+        <div id="threat-filters-panel" className={`${filtersExpanded ? 'flex' : 'hidden'} lg:flex items-center gap-3 px-4 py-2.5 flex-wrap`}>
+          {/* Time range */}
+          <div className="flex items-center gap-0.5">
+            {visibleRanges.map(tr => (
+              <button
+                type="button"
+                key={tr}
+                onClick={() => setTimeRange(tr)}
+                aria-pressed={timeRange === tr}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                  timeRange === tr ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                {tr}
+              </button>
+            ))}
+          </div>
 
-        {/* Mode toggle */}
-        <div className="flex items-center gap-0.5">
-          {MODES.map(m => (
-            <button
-              key={m.id}
-              onClick={() => setMode(m.id)}
-              aria-pressed={mode === m.id}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-                mode === m.id ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
+          <span className="text-gray-700">|</span>
 
-        <span className="text-gray-700">|</span>
+          {/* Mode toggle */}
+          <div className="flex items-center gap-0.5">
+            {MODES.map(m => (
+              <button
+                type="button"
+                key={m.id}
+                onClick={() => setMode(m.id)}
+                aria-pressed={mode === m.id}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                  mode === m.id ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
 
-        {/* View toggle */}
-        <div className="flex items-center gap-0.5">
-          {VIEWS.map(v => (
-            <button
-              key={v.id}
-              onClick={() => setView(v.id)}
-              aria-pressed={view === v.id}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-                view === v.id ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
+          <span className="text-gray-700">|</span>
 
-        {/* Summary stats */}
-        <div className="ml-auto flex items-center gap-3 text-[10px] text-gray-400">
-          {loading && <span className="text-blue-400">Loading...</span>}
-          {summary && (
-            <>
-              <span>{formatNumber(summary.total_points)} locations</span>
-              <span className="text-gray-700">|</span>
-              <span>{formatNumber(summary.total_events)} events</span>
-            </>
-          )}
+          {/* View toggle */}
+          <div className="flex items-center gap-0.5">
+            {VIEWS.map(v => (
+              <button
+                type="button"
+                key={v.id}
+                onClick={() => setView(v.id)}
+                aria-pressed={view === v.id}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                  view === v.id ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Summary stats */}
+          <div className="ml-auto flex items-center gap-3 text-[10px] text-gray-400">
+            {loading && <span className="text-blue-400">Loading...</span>}
+            {summary && (
+              <>
+                <span>{formatNumber(summary.total_points)} locations</span>
+                <span className="text-gray-700">|</span>
+                <span>{formatNumber(summary.total_events)} events</span>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

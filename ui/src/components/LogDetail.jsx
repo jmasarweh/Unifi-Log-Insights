@@ -179,6 +179,26 @@ export default function LogDetail({ log, hiddenColumns = new Set() }) {
     )
   }
 
+  // Protocol (always shown when available)
+  if (displayLog.protocol) {
+    sections.push(
+      <div key="proto">
+        <span className="text-gray-400 text-[12px] uppercase tracking-wider">Protocol</span>
+        <div className="text-gray-300 text-sm mt-0.5 uppercase">{displayLog.protocol}</div>
+      </div>
+    )
+  }
+
+  // Service (shown for non-firewall; firewall has its own detailed service section below)
+  if (displayLog.service_name && displayLog.log_type !== 'firewall') {
+    sections.push(
+      <div key="service_general">
+        <span className="text-gray-400 text-[12px] uppercase tracking-wider">Service</span>
+        <div className="text-gray-300 text-sm mt-0.5">{formatServiceName(displayLog.service_name)}</div>
+      </div>
+    )
+  }
+
   // Firewall details
   if (displayLog.log_type === 'firewall') {
     // Parsed rule breakdown (hidden when rule column is hidden)
@@ -367,14 +387,14 @@ export default function LogDetail({ log, hiddenColumns = new Set() }) {
   const showEnrichButton = showAbuse && canEnrich && !enrichedData
 
   return (
-    <div className="bg-gray-950/80 px-4 py-3">
+    <div className="bg-gray-950/80 px-4 py-3 max-h-[60vh] sm:max-h-none overflow-y-auto">
       {sections.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-3">
           {sections}
         </div>
       )}
       {(abuseDetails.length > 0 || showEnrichButton) && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 pt-2 border-t border-gray-800/50">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-3 pt-2 border-t border-gray-800/50">
           {abuseDetails}
           {showEnrichButton && (
             <div key="enrich_btn">

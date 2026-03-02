@@ -1,6 +1,6 @@
 services:
   unifi-log-insight:
-    image: ghcr.io/jmasarweh/unifi-log-insight:latest
+    build: .
     container_name: unifi-log-insight
     restart: unless-stopped
     ports:
@@ -9,16 +9,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./maxmind:/app/maxmind
-    # If you add real credentials here, do not commit this file.
-    environment:
-      POSTGRES_PASSWORD: "your_strong_password_here"
-      ABUSEIPDB_API_KEY: "your_key_here"
-      MAXMIND_ACCOUNT_ID: "your_account_id"
-      MAXMIND_LICENSE_KEY: "your_license_key"
-      LOG_LEVEL: "INFO"
-      TZ: "Europe/London"
-      UNIFI_API_KEY: "your_unifi_api_key_here"
-      UNIFI_HOST: "https://192.168.1.1"
+    env_file:
+      - .env
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "unifi", "-d", "unifi_logs"]
       interval: 15s

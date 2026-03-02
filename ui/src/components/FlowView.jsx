@@ -30,6 +30,7 @@ export default function FlowView({ maxFilterDays }) {
   // Host detail expansion state — { ip, rowIndex } or null
   const [expandedRow, setExpandedRow] = useState(null)
   const [hostSearchInput, setHostSearchInput] = useState('')
+  const [filtersExpanded, setFiltersExpanded] = useState(false)
 
   const toggleAction = (action) => {
     setActiveActions(prev => {
@@ -98,10 +99,34 @@ export default function FlowView({ maxFilterDays }) {
     }
   }
 
+  // Count active non-default filters for mobile badge
+  const activeFilterCount = [
+    activeActions.length !== ACTIONS.length,
+    activeDirections.length !== DIRECTIONS.length,
+    timeRange !== '24h',
+    hostSearchInput,
+  ].filter(Boolean).length
+
   return (
-    <div className="flex flex-col h-full overflow-hidden p-4 space-y-4">
-      {/* Filters — matches FilterBar styling */}
-      <div className="flex items-center gap-4 flex-wrap">
+    <div className="flex flex-col h-full overflow-hidden pt-2.5 px-4 pb-4 space-y-4">
+      {/* Filters (toggle + content wrapper to avoid space-y margin on desktop) */}
+      <div>
+        {/* Mobile filter toggle */}
+        <button
+          type="button"
+          onClick={() => setFiltersExpanded(v => !v)}
+          className="lg:hidden flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors w-full justify-between"
+          aria-expanded={filtersExpanded}
+          aria-controls="flow-filters-panel"
+        >
+          <span>Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}</span>
+          <svg className={`w-3.5 h-3.5 transition-transform ${filtersExpanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false">
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </button>
+
+        {/* Filters — always visible on desktop, collapsible on mobile */}
+        <div id="flow-filters-panel" className={`${filtersExpanded ? 'flex' : 'hidden'} lg:flex items-center gap-2 lg:gap-4 flex-wrap mt-4 lg:mt-0`}>
         {/* Action toggles */}
         <div className="flex items-center gap-1.5">
           {ACTIONS.map(action => (
@@ -119,10 +144,10 @@ export default function FlowView({ maxFilterDays }) {
           ))}
         </div>
 
-        <div className="h-5 w-px bg-gray-700" />
+        <div className="hidden sm:block h-5 w-px bg-gray-700" />
 
         {/* Direction toggles */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           {DIRECTIONS.map(dir => (
             <button
               key={dir}
@@ -138,10 +163,10 @@ export default function FlowView({ maxFilterDays }) {
           ))}
         </div>
 
-        <div className="h-5 w-px bg-gray-700" />
+        <div className="hidden sm:block h-5 w-px bg-gray-700" />
 
         {/* Time range */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           {visibleRanges.map(tr => (
             <button
               key={tr}
@@ -157,7 +182,7 @@ export default function FlowView({ maxFilterDays }) {
           ))}
         </div>
 
-        <div className="h-5 w-px bg-gray-700" />
+        <div className="hidden sm:block h-5 w-px bg-gray-700" />
 
         {/* IP Search */}
         <div className="flex items-center gap-1">
@@ -167,7 +192,7 @@ export default function FlowView({ maxFilterDays }) {
             value={hostSearchInput}
             onChange={e => setHostSearchInput(e.target.value)}
             onKeyDown={handleHostSearch}
-            className="w-36 bg-gray-800/50 text-gray-300 text-xs rounded px-2 py-1 border border-gray-700 placeholder-gray-600 focus:outline-none focus:border-gray-500"
+            className="w-full sm:w-36 bg-gray-800/50 text-gray-300 text-xs rounded px-2 py-1 border border-gray-700 placeholder-gray-600 focus:outline-none focus:border-gray-500"
           />
           {expandedRow && (
             <button
@@ -180,11 +205,12 @@ export default function FlowView({ maxFilterDays }) {
 
         <button
           onClick={refresh}
-          className="ml-auto px-2.5 py-1 rounded text-xs font-medium text-gray-400 hover:text-gray-200 transition-colors"
+          className="ml-auto shrink-0 px-2.5 py-1 rounded text-xs font-medium text-gray-400 hover:text-gray-200 transition-colors"
           title="Refresh data"
         >
           ↻ Refresh
         </button>
+        </div>
       </div>
 
       {/* Sub-tabs */}
@@ -205,9 +231,9 @@ export default function FlowView({ maxFilterDays }) {
       </div>
 
       {/* Main content — side by side: chart 65%, IP pairs 35% */}
-      <div className="flex gap-4 min-h-0 flex-1">
+      <div className="flex flex-col sm:flex-row gap-4 min-h-0 flex-1">
         {/* Left: active panel (60%) */}
-        <div className="w-[60%] min-w-0 overflow-hidden">
+        <div className="w-full sm:w-[60%] flex-1 min-h-0 sm:flex-none sm:h-auto min-w-0 overflow-hidden">
           {activePanel === 'sankey' && (
             <SankeyChart
               filters={filters}
@@ -230,7 +256,7 @@ export default function FlowView({ maxFilterDays }) {
         </div>
 
         {/* Right: Top IP Pairs (40%) + slide-out host panel */}
-        <div className="w-[40%] min-w-0 overflow-hidden flex flex-col relative">
+        <div className="w-full sm:w-[40%] flex-1 min-h-0 sm:flex-none sm:h-auto min-w-0 overflow-hidden flex flex-col relative">
           <TopIPPairs
             filters={filters}
             refreshKey={refreshKey}

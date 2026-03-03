@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { fetchWANCandidates } from '../api'
-import { IFACE_REGEX } from '../utils'
+import { IFACE_REGEX, validateVlanId } from '../utils'
 
 const COMMON_WAN_INTERFACES = [
   { name: 'ppp0',  desc: 'PPPoE (DSL/Fiber)', note: 'Most Common' },
   { name: 'eth0',  desc: 'Direct Ethernet WAN' },
   { name: 'eth3',  desc: 'SFP+ Port 1' },
   { name: 'eth4',  desc: 'SFP+ Port 2' },
+  { name: 'eth4.10', desc: 'VLAN-tagged WAN (e.g., ISP VLAN)' },
   { name: 'eth8',  desc: 'WAN Port (UDM models)' },
 ]
 
@@ -72,7 +73,12 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
     const trimmed = manualInput.trim()
     if (!trimmed) return
     if (!IFACE_REGEX.test(trimmed)) {
-      setManualError('Interface name must start with letters followed by a number (e.g., ppp0, eth4, sfp+0).')
+      setManualError('Interface name must start with letters followed by a number, with optional VLAN tag (e.g., ppp0, eth4, eth4.10, sfp+0).')
+      return
+    }
+    const vlanErr = validateVlanId(trimmed)
+    if (vlanErr) {
+      setManualError(vlanErr)
       return
     }
     setManualError('')
@@ -260,7 +266,7 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
               value={manualInput}
               onChange={(e) => { setManualInput(e.target.value); if (manualError) setManualError('') }}
               onKeyDown={(e) => e.key === 'Enter' && handleAddManual()}
-              placeholder="e.g., eth5, wan0, enp3s0"
+              placeholder="e.g., eth5, eth4.10, wan0, enp3s0"
               className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
             />
             <button

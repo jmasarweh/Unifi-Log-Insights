@@ -6,7 +6,7 @@ import FirewallRules from './FirewallRules'
 import VpnNetworkTable from './VpnNetworkTable'
 import { fetchConfig, fetchUniFiNetworkConfig, fetchUniFiSettings, fetchNetworkSegments, saveSetupConfig } from '../api'
 import { suggestVpnType } from '../vpnUtils'
-import { IFACE_REGEX } from '../utils'
+import { IFACE_REGEX, validateVlanId } from '../utils'
 
 const LABEL_REGEX = /[^a-zA-Z0-9 ._-]/g
 // Derive WAN sort order from networkgroup: WAN→1, WAN2→2, WAN3→3, etc.
@@ -245,7 +245,12 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
     const trimmed = manualWanInput.trim()
     if (!trimmed) return
     if (!IFACE_REGEX.test(trimmed)) {
-      setManualWanError('Interface name must start with letters followed by a number (e.g., ppp0, eth4, sfp+0).')
+      setManualWanError('Interface name must start with letters followed by a number, with optional VLAN tag (e.g., ppp0, eth4, eth4.10, sfp+0).')
+      return
+    }
+    const vlanErr = validateVlanId(trimmed)
+    if (vlanErr) {
+      setManualWanError(vlanErr)
       return
     }
     if (wanInterfaces.includes(trimmed)) {
@@ -383,8 +388,8 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                 const manualWans = wanInterfaces.slice(wanEntries.length)
                 const hasInvalidWan = (wanEntries.length > 0 && wanEntries.some((_, idx) => {
                   const iface = editingWan[idx] !== undefined ? editingWan[idx].trim() : wanInterfaces[idx]
-                  return !iface || !IFACE_REGEX.test(iface)
-                })) || manualWans.some(iface => !iface || !IFACE_REGEX.test(iface))
+                  return !iface || !IFACE_REGEX.test(iface) || !!validateVlanId(iface)
+                })) || manualWans.some(iface => !iface || !IFACE_REGEX.test(iface) || !!validateVlanId(iface))
                 return (
                 <div className="space-y-6">
                   <div>
@@ -406,7 +411,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                       const currentIface = wanInterfaces[idx] || w.physical_interface
                       const isGuess = w.detected_from !== 'device'
                       const ifaceValue = editingWan[idx] !== undefined ? editingWan[idx] : currentIface
-                      const ifaceInvalid = ifaceValue && !IFACE_REGEX.test(ifaceValue)
+                      const ifaceInvalid = ifaceValue && (!IFACE_REGEX.test(ifaceValue) || validateVlanId(ifaceValue))
                       return (
                         <div key={w.networkgroup || w.name} className="p-4 rounded-lg border border-gray-700">
                           <div className="flex items-center gap-3 mb-3">
@@ -461,7 +466,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                           </div>
                           {ifaceInvalid && (
                             <p className="text-[11px] text-red-400 mt-1.5">
-                              Interface name must start with letters followed by a number (e.g., ppp0, eth4, usb0).
+                              {validateVlanId(ifaceValue) || 'Interface name must start with letters followed by a number, with optional VLAN tag (e.g., ppp0, eth4, eth4.10, sfp+0).'}
                             </p>
                           )}
                         </div>

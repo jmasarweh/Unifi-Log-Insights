@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { fetchWANCandidates } from '../api'
-import { IFACE_REGEX } from '../utils'
+import { IFACE_REGEX, validateVlanId } from '../utils'
 
 const COMMON_WAN_INTERFACES = [
   { name: 'ppp0',  desc: 'PPPoE (DSL/Fiber)', note: 'Most Common' },
@@ -74,6 +74,11 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
     if (!trimmed) return
     if (!IFACE_REGEX.test(trimmed)) {
       setManualError('Interface name must start with letters followed by a number, with optional VLAN tag (e.g., ppp0, eth4, eth4.10, sfp+0).')
+      return
+    }
+    const vlanErr = validateVlanId(trimmed)
+    if (vlanErr) {
+      setManualError(vlanErr)
       return
     }
     setManualError('')

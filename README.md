@@ -21,6 +21,7 @@ Single Docker container. No external dependencies. Zero data collection.
 - 🔤 [DNS Logging](#-dns-logging)
 - 🖧 [Unraid Setup](#-unraid-setup)
 - 🧹 [Database Maintenance](#-database-maintenance)
+- [External Database](#external-database)
 - 🔧 [Troubleshooting](#-troubleshooting)
 - ⚖️ [Disclaimer](#-disclaimer)
 - 📄 [License](#-license-1)
@@ -235,7 +236,7 @@ Everything runs inside a single Docker container, managed by supervisord:
 
 ### Current architecture:
 
-- PostgreSQL 16 process for `logs`, `ip_threats`, and config state.
+- PostgreSQL 16 process for `logs`, `ip_threats`, and config state. PostgreSQL can be embedded (default) or [external](#external-database).
 - Receiver process (`main.py`) listens on UDP `514`, parses logs, enriches (GeoIP, ASN, AbuseIPDB, rDNS, UniFi device names), and batch-inserts into Postgres. It also runs background threads for stats + WAN/gateway detection, retention cleanup, AbuseIPDB blacklist pulls, threat backfill, and UniFi client/device polling.
 - API process (`api.py`) serves REST endpoints and the React SPA from `/app/static` on port `8000` (mapped to `8090` by docker-compose).
 - Cron process runs `geoip-update.sh` (Wed/Sat 07:00 UTC when MaxMind credentials are set), which refreshes GeoIP databases and signals the receiver to reload them.
@@ -271,6 +272,15 @@ Everything runs inside a single Docker container, managed by supervisord:
 | `UNIFI_POLL_INTERVAL` | *(optional)* Device polling interval in seconds. Defaults to `300` (5 minutes) |
 | `RETENTION_DAYS` | *(optional)* Log retention in days for firewall/DHCP/Wi-Fi/system. Defaults to `60`. Can also be set via Settings UI |
 | `DNS_RETENTION_DAYS` | *(optional)* DNS log retention in days. Defaults to `10`. Can also be set via Settings UI |
+| `DB_HOST` | *(optional)* External PostgreSQL host. When set to a non-localhost address, embedded PG is disabled (default: `127.0.0.1`) |
+| `DB_PORT` | *(optional)* External PostgreSQL port (default: `5432`) |
+| `DB_NAME` | *(optional)* Database name (default: `unifi_logs`) |
+| `DB_USER` | *(optional)* Database user (default: `unifi`) |
+| `DB_PASSWORD` | *(optional)* Database password (falls back to `POSTGRES_PASSWORD`) |
+| `DB_SSLMODE` | *(optional)* SSL mode: `require`, `verify-ca`, `verify-full` |
+| `DB_SSLROOTCERT` | *(optional)* Path to CA certificate file |
+| `DB_SSLCERT` | *(optional)* Path to client certificate (mTLS) |
+| `DB_SSLKEY` | *(optional)* Path to client key (mTLS) |
 
 ### Ports
 
@@ -662,6 +672,40 @@ If disk usage is still high, check:
 - Docker container logs (can grow quickly without rotation).
 - PostgreSQL WAL files in `pg_wal` during heavy ingest.
 
+### External Database
+
+UniFi Log Insight can connect to an existing PostgreSQL 14+ instance instead of running the embedded one. Set `DB_HOST` to a non-localhost address and the embedded PostgreSQL is automatically disabled.
+
+**Requirements:**
+- PostgreSQL 14 or newer
+- A database user with DDL privileges (CREATE TABLE, CREATE INDEX, CREATE FUNCTION)
+
+**Setup:**
+```sql
+CREATE USER unifi WITH PASSWORD 'your_password';
+CREATE DATABASE unifi_logs OWNER unifi;
+-- Or if database already exists:
+GRANT ALL ON SCHEMA public TO unifi;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO unifi;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO unifi;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO unifi;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO unifi;
+```
+
+**Deployment Topologies:**
+
+| Topology | `DB_HOST` value |
+|----------|----------------|
+| Same Compose project | Service name (e.g., `postgres`) |
+| Different Compose project, same host | Container IP or shared network |
+| Docker Desktop (Win/Mac) to host DB | `host.docker.internal` |
+| Linux Docker to host DB | `172.17.0.1` (default bridge gateway) |
+| Cloud DB (RDS, Cloud SQL, Azure) | Hostname + `DB_SSLMODE=require` |
+
+See `docker-compose.external-db.yml` for a complete example.
+
+> **Note:** `POSTGRES_PASSWORD` is always required — it derives the encryption key for stored API keys, independent of the database connection password.
+
 ---
 
 ## 🔧 Troubleshooting
@@ -695,6 +739,16 @@ If disk usage is still high, check:
 1. Check logs: `docker compose logs`
 2. Verify `.env` exists and `POSTGRES_PASSWORD` is set
 3. If PostgreSQL data is corrupted, reset: `docker compose down -v && docker compose up -d --build`
+
+### External Database
+
+| Issue | Solution |
+|-------|----------|
+| "Connection refused" | Check `DB_HOST`, `DB_PORT`, firewall rules, Docker network connectivity |
+| "Password authentication failed" | Verify `DB_PASSWORD` matches the actual database user password |
+| "Permission denied for table" | Run the GRANT statements from the [External Database](#external-database) section |
+| "SSL required" | Set `DB_SSLMODE=require` |
+| Container reports unhealthy | Check `docker logs` for database connection errors |
 
 ---
 

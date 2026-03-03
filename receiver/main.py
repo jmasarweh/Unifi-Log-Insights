@@ -21,7 +21,7 @@ import schedule
 
 from parsers import parse_log
 import parsers
-from db import Database, get_config, set_config
+from db import Database, get_config, set_config, build_conn_params, is_external_db, wait_for_postgres
 from enrichment import Enricher
 from backfill import BackfillTask
 from blacklist import BlacklistFetcher
@@ -249,31 +249,12 @@ def run_scheduler(db: Database, enricher: Enricher, blacklist_fetcher: Blacklist
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def wait_for_postgres(conn_params: dict, max_retries: int = 30, delay: float = 2.0):
-    """Wait for PostgreSQL to be ready."""
-    import psycopg2
-    for i in range(max_retries):
-        try:
-            conn = psycopg2.connect(**conn_params)
-            conn.close()
-            logger.info("PostgreSQL is ready.")
-            return
-        except psycopg2.OperationalError:
-            logger.debug("Waiting for PostgreSQL... (%d/%d)", i + 1, max_retries)
-            time.sleep(delay)
-    logger.error("PostgreSQL not available after %d retries", max_retries)
-    sys.exit(1)
-
-
 def main():
-    # Build connection params (safe for passwords with special chars)
-    conn_params = {
-        'host': '127.0.0.1',
-        'port': 5432,
-        'dbname': 'unifi_logs',
-        'user': 'unifi',
-        'password': os.environ.get('POSTGRES_PASSWORD', 'changeme'),
-    }
+    # Build connection params from environment
+    conn_params = build_conn_params()
+    logger.info("Database: %s mode (host=%s:%s, db=%s)",
+                "external" if is_external_db() else "embedded",
+                conn_params['host'], conn_params['port'], conn_params['dbname'])
 
     # Wait for PostgreSQL
     wait_for_postgres(conn_params)

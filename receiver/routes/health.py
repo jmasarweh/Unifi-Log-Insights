@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
 
-from db import get_config
+from db import get_config, is_external_db
 from deps import get_conn, put_conn, enricher_db, APP_VERSION
 
 logger = logging.getLogger('api.health')
@@ -97,13 +97,14 @@ def health():
             conn.commit()
         except Exception:
             conn.rollback()
-        try:
-            usage = shutil.disk_usage('/var/lib/postgresql/data')
-            storage['volume_total_bytes'] = usage.total
-            storage['volume_used_bytes'] = usage.used
-            storage['volume_available_bytes'] = usage.free
-        except Exception as e:
-            logger.warning("Failed to read disk usage for /var/lib/postgresql/data: %s", e)
+        if not is_external_db():
+            try:
+                usage = shutil.disk_usage('/var/lib/postgresql/data')
+                storage['volume_total_bytes'] = usage.total
+                storage['volume_used_bytes'] = usage.used
+                storage['volume_available_bytes'] = usage.free
+            except Exception as e:
+                logger.warning("Failed to read disk usage for /var/lib/postgresql/data: %s", e)
 
         return {
             'status': 'ok',

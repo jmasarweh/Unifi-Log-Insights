@@ -26,7 +26,7 @@ No tests or linting. Verify via: container logs, `curl http://localhost:8090/api
 
 ## Architecture Overview
 
-4 supervised processes: PostgreSQL 16, receiver (`main.py` — UDP syslog + enrichment + backfill), API (`api.py` — FastAPI + SPA on port 8000), cron (GeoIP updates). Ports: `514/udp` syslog, `8090→8000` web.
+4 supervised processes: PostgreSQL 16 (disabled in external DB mode), receiver (`main.py` — UDP syslog + enrichment + backfill), API (`api.py` — FastAPI + SPA on port 8000), cron (GeoIP updates). Ports: `514/udp` syslog, `8090→8000` web. PostgreSQL can be embedded (default) or external (configured via `DB_HOST` env var).
 
 `api.py` is a thin shell registering 6 routers from `routes/`. Shared state lives in `deps.py` as singletons. Config hierarchy: env vars > `system_config` DB table > defaults.
 
@@ -68,3 +68,4 @@ wsl -d Ubuntu -- bash -lc "cd /mnt/d/docker/unifi-log-insight && ~/.local/bin/co
 - **Device name enrichment**: LEFT JOIN `unifi_clients` + `unifi_devices` on IPs with COALESCE fallback chain.
 - **API key encryption**: Fernet from `POSTGRES_PASSWORD` via PBKDF2. If password changes, stored keys are unrecoverable.
 - **Timezone migration**: One-time boot backfill gated by `system_config.tz_backfill_done` + advisory lock.
+- **DB connection centralization**: `build_conn_params()` in `db.py` is the single source for all connection config. Never hardcode connection parameters elsewhere.

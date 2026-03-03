@@ -1,0 +1,60 @@
+services:
+  unifi-log-insight:
+    image: ghcr.io/jmasarweh/unifi-log-insight:latest
+    container_name: unifi-log-insight
+    restart: unless-stopped
+    ports:
+      - "514:514/udp"
+      - "8090:8000"
+    volumes:
+      - ./maxmind:/app/maxmind
+      # Mount TLS certificates for verify-ca/verify-full/mTLS (uncomment if needed):
+      # - ./certs:/certs:ro
+    environment:
+      # ── Required ──
+      POSTGRES_PASSWORD: "your_encryption_secret"   # Used for API key encryption only
+
+      # ── External Database ──
+      # Container on same Docker network:
+      DB_HOST: "postgres"                            # service name or container name
+      # Container on different Docker network:
+      # DB_HOST: "172.18.0.5"                        # use container IP or connect networks
+      # Host machine from container:
+      # DB_HOST: "host.docker.internal"              # Docker Desktop (Win/Mac)
+      # DB_HOST: "172.17.0.1"                        # Linux Docker default gateway
+      # Cloud-managed PostgreSQL (RDS, Cloud SQL, etc.):
+      # DB_HOST: "mydb.abc123.us-east-1.rds.amazonaws.com"
+      # DB_SSLMODE: "require"                        # usually required for cloud DBs
+
+      DB_PORT: "5432"
+      DB_NAME: "unifi_logs"
+      DB_USER: "unifi"
+      DB_PASSWORD: "your_db_password"
+      # DB_SSLMODE: "require"                        # require | verify-ca | verify-full
+      # DB_SSLROOTCERT: "/certs/ca-certificate.crt"  # required for verify-ca / verify-full
+      # DB_SSLCERT: "/certs/client-cert.crt"          # optional: client cert for mTLS
+      # DB_SSLKEY: "/certs/client-key.key"             # optional: client key for mTLS
+
+      TZ: "Europe/London"
+      LOG_LEVEL: "INFO"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+
+  # Example: PostgreSQL in the same Compose project
+  # postgres:
+  #   image: postgres:16
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: unifi
+  #     POSTGRES_PASSWORD: your_db_password
+  #     POSTGRES_DB: unifi_logs
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #   # No need to expose ports — containers on the same network communicate directly
+
+# volumes:
+#   pgdata:

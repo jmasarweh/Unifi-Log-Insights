@@ -3,6 +3,22 @@ set -e
 
 PGDATA="/var/lib/postgresql/data"
 
+# ── External database mode detection ─────────────────────────────────────────
+# Normalize DB_HOST: trim leading/trailing whitespace + lowercase
+# Must match Python's _normalize_db_host() exactly — do NOT use `tr -d '[:space:]'`
+# (that strips interior whitespace, diverging from Python's .strip())
+_db_host_lower=$(echo "${DB_HOST:-127.0.0.1}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
+_external_db=false
+if [ "$_db_host_lower" != "127.0.0.1" ] && [ "$_db_host_lower" != "localhost" ] && [ "$_db_host_lower" != "::1" ] && [ -n "$_db_host_lower" ]; then
+    _external_db=true
+fi
+
+if [ "$_external_db" = "true" ]; then
+    echo "[entrypoint] External database mode (DB_HOST=$DB_HOST), skipping embedded PostgreSQL"
+    # Disable PostgreSQL in supervisord (targeted: only [program:postgresql])
+    sed -i '/\[program:postgresql\]/,/^\[/{s/autostart=true/autostart=false/; s/autorestart=true/autorestart=false/}' /etc/supervisor/conf.d/supervisord.conf
+else
+
 # Initialize PostgreSQL if data directory is empty
 if [ ! -s "$PGDATA/PG_VERSION" ]; then
     echo "[entrypoint] Initializing PostgreSQL..."
@@ -56,6 +72,7 @@ else
     chown -R postgres:postgres "$PGDATA"
 
 fi
+fi  # end external_db else block
 
 echo "[entrypoint] Starting services via supervisord..."
 

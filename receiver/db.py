@@ -7,8 +7,10 @@ Handles PostgreSQL connection pooling, log insertion, and retention cleanup.
 import base64
 import ipaddress
 import os
+import sys
 import json
 import logging
+import time
 from contextlib import contextmanager
 
 import psycopg2
@@ -57,6 +59,67 @@ def decrypt_api_key(encrypted: str) -> str:
         logger.warning("Failed to decrypt API key (POSTGRES_PASSWORD may have changed): %s", e)
         return ''
 
+# ── External Database Support ─────────────────────────────────────────────────
+
+def _normalize_db_host(raw: str) -> str:
+    """Normalize DB_HOST: strip leading/trailing whitespace, lowercase.
+    Shared by build_conn_params() and is_external_db() to guarantee
+    the same host value is used for detection and connection."""
+    return raw.strip().lower()
+
+
+def build_conn_params() -> dict:
+    """Build PostgreSQL connection parameters from environment variables."""
+    host = _normalize_db_host(os.environ.get('DB_HOST', '127.0.0.1'))
+    params = {
+        'host': host,
+        'port': int(os.environ.get('DB_PORT', '5432')),
+        'dbname': os.environ.get('DB_NAME', 'unifi_logs'),
+        'user': os.environ.get('DB_USER', 'unifi'),
+        'password': os.environ.get('DB_PASSWORD') or os.environ.get('POSTGRES_PASSWORD', 'changeme'),
+        'connect_timeout': 10,
+        'keepalives': 1,
+        'keepalives_idle': 30,
+        'keepalives_interval': 10,
+        'keepalives_count': 3,
+    }
+    sslmode = os.environ.get('DB_SSLMODE')
+    if sslmode:
+        params['sslmode'] = sslmode
+    sslrootcert = os.environ.get('DB_SSLROOTCERT')
+    if sslrootcert:
+        params['sslrootcert'] = sslrootcert
+    sslcert = os.environ.get('DB_SSLCERT')
+    if sslcert:
+        params['sslcert'] = sslcert
+    sslkey = os.environ.get('DB_SSLKEY')
+    if sslkey:
+        params['sslkey'] = sslkey
+    return params
+
+
+def is_external_db() -> bool:
+    """Check if the app is configured to use an external database."""
+    host = _normalize_db_host(os.environ.get('DB_HOST', '127.0.0.1'))
+    return host not in ('127.0.0.1', 'localhost', '::1', '')
+
+
+def wait_for_postgres(conn_params: dict, max_retries: int = 30, delay: float = 2.0):
+    """Wait for PostgreSQL to be ready. Used by both receiver and API."""
+    for i in range(max_retries):
+        try:
+            conn = psycopg2.connect(**conn_params)
+            conn.close()
+            logger.info("PostgreSQL is ready.")
+            return
+        except psycopg2.OperationalError:
+            logger.warning("Waiting for PostgreSQL... (%d/%d)", i + 1, max_retries)
+            time.sleep(delay)
+    logger.critical("PostgreSQL not available after %d retries. Check DB_HOST, DB_PORT, "
+                    "DB_USER, DB_PASSWORD, network connectivity, and firewall rules.", max_retries)
+    sys.exit(1)
+
+
 # Column names matching the logs table
 INSERT_COLUMNS = [
     'timestamp', 'log_type', 'direction',
@@ -86,13 +149,7 @@ class Database:
     """PostgreSQL connection pool and operations."""
 
     def __init__(self, conn_params: dict | None = None, min_conn: int = 2, max_conn: int = 10):
-        self.conn_params = conn_params or {
-            'host': '127.0.0.1',
-            'port': 5432,
-            'dbname': 'unifi_logs',
-            'user': 'unifi',
-            'password': os.environ.get('POSTGRES_PASSWORD', 'changeme'),
-        }
+        self.conn_params = conn_params or build_conn_params()
         self.pool = None
         self.min_conn = min_conn
         self.max_conn = max_conn
@@ -107,8 +164,72 @@ class Database:
         self._ensure_schema()
 
     def _ensure_schema(self):
-        """Run idempotent schema migrations (safe on every boot)."""
+        """Run idempotent schema migrations (safe on every boot).
+
+        The full logs table DDL and indexes from init.sql are included here
+        so external databases get the complete schema auto-provisioned.
+        All statements use IF NOT EXISTS, so they are safe for embedded mode
+        too (where init.sql already ran via entrypoint.sh).
+        """
         migrations = [
+            # ── Base schema (matches init.sql) ────────────────────────────
+            """CREATE TABLE IF NOT EXISTS logs (
+                id          BIGSERIAL PRIMARY KEY,
+                timestamp   TIMESTAMPTZ NOT NULL,
+                log_type    VARCHAR(20) NOT NULL,
+                direction   VARCHAR(20),
+                src_ip      INET,
+                src_port    INTEGER,
+                dst_ip      INET,
+                dst_port    INTEGER,
+                protocol    VARCHAR(10),
+                service_name TEXT,
+                rule_name   VARCHAR(100),
+                rule_desc   VARCHAR(255),
+                rule_action VARCHAR(20),
+                interface_in  VARCHAR(20),
+                interface_out VARCHAR(20),
+                mac_address MACADDR,
+                hostname    VARCHAR(255),
+                dns_query   VARCHAR(255),
+                dns_type    VARCHAR(10),
+                dns_answer  VARCHAR(255),
+                dhcp_event  VARCHAR(20),
+                wifi_event  VARCHAR(50),
+                geo_country VARCHAR(2),
+                geo_city    VARCHAR(100),
+                geo_lat     DECIMAL(9,6),
+                geo_lon     DECIMAL(9,6),
+                asn_number  INTEGER,
+                asn_name    VARCHAR(255),
+                threat_score    INTEGER,
+                threat_categories TEXT[],
+                rdns        VARCHAR(255),
+                abuse_usage_type TEXT,
+                abuse_hostnames TEXT,
+                abuse_total_reports INTEGER,
+                abuse_last_reported TIMESTAMPTZ,
+                abuse_is_whitelisted BOOLEAN,
+                abuse_is_tor BOOLEAN,
+                src_device_name TEXT,
+                dst_device_name TEXT,
+                raw_log     TEXT NOT NULL,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )""",
+            # Performance indexes from init.sql
+            "CREATE INDEX IF NOT EXISTS idx_logs_timestamp    ON logs (timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_logs_type         ON logs (log_type)",
+            "CREATE INDEX IF NOT EXISTS idx_logs_src_ip       ON logs (src_ip)",
+            "CREATE INDEX IF NOT EXISTS idx_logs_dst_ip       ON logs (dst_ip)",
+            "CREATE INDEX IF NOT EXISTS idx_logs_rule_action  ON logs (rule_action)",
+            "CREATE INDEX IF NOT EXISTS idx_logs_direction    ON logs (direction)",
+            "CREATE INDEX IF NOT EXISTS idx_logs_threat_score ON logs (threat_score) WHERE threat_score IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS idx_logs_type_time    ON logs (log_type, timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_logs_action_time  ON logs (rule_action, timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_logs_src_port     ON logs (src_port) WHERE src_port IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS idx_logs_dst_port     ON logs (dst_port) WHERE dst_port IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS idx_logs_protocol     ON logs (protocol) WHERE protocol IS NOT NULL",
+            # ── Migrations (existing) ─────────────────────────────────────
             # ip_threats persistent cache (added Phase 6)
             """CREATE TABLE IF NOT EXISTS ip_threats (
                 ip              INET PRIMARY KEY,
@@ -264,7 +385,48 @@ class Database:
                         except Exception:
                             cur.execute(f"ROLLBACK TO SAVEPOINT sp_{i}")
                             raise
-            logger.info("Schema migrations applied.")
+                # ── Fail-fast validation ──────────────────────────────
+                db_user = self.conn_params.get('user', '?')
+                grant_hint = (
+                    f"Run as DB superuser: GRANT ALL ON SCHEMA public TO {db_user}; "
+                    f"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {db_user}; "
+                    f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {db_user};"
+                )
+
+                with conn.cursor() as vcur:
+                    vcur.execute("""SELECT 1 FROM information_schema.tables
+                                   WHERE table_schema = 'public' AND table_name = 'logs'""")
+                    if not vcur.fetchone():
+                        logger.critical(
+                            "FATAL: 'logs' table does not exist after schema migration. "
+                            "The database user '%s' likely lacks CREATE TABLE privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
+                    vcur.execute("SELECT to_regprocedure('public.cleanup_old_logs(integer,integer)')")
+                    row = vcur.fetchone()
+                    if not row or row[0] is None:
+                        logger.critical(
+                            "FATAL: 'cleanup_old_logs' function does not exist after schema migration. "
+                            "The database user '%s' likely lacks CREATE FUNCTION privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
+                    vcur.execute("""SELECT 1 FROM pg_indexes
+                                   WHERE schemaname = 'public' AND indexname = 'idx_logs_timestamp'""")
+                    if not vcur.fetchone():
+                        logger.critical(
+                            "FATAL: Critical index 'idx_logs_timestamp' missing after schema migration. "
+                            "The database user '%s' likely lacks CREATE INDEX privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
+            logger.info("Schema migrations applied and validated.")
+        except SystemExit:
+            raise
         except Exception:
             logger.exception("Schema migration failed")
 
@@ -279,6 +441,8 @@ class Database:
         local Unix socket (pg_hba.conf: local all all trust) to run the ALTER,
         then gate it so it only runs once.
         """
+        if is_external_db():
+            return  # Not needed: no Unix socket superuser, app user owns the function
         try:
             if self.get_config('fn_ownership_fixed'):
                 return
@@ -384,16 +548,17 @@ class Database:
 
     @contextmanager
     def get_conn(self):
-        """Get a connection from the pool."""
+        """Get a connection from the pool. Discards broken connections."""
         conn = self.pool.getconn()
         try:
             yield conn
             conn.commit()
         except Exception:
-            conn.rollback()
+            if not conn.closed:
+                conn.rollback()
             raise
         finally:
-            self.pool.putconn(conn)
+            self.pool.putconn(conn, close=bool(conn.closed))
 
     def insert_log(self, parsed: dict):
         """Insert a single parsed log entry."""

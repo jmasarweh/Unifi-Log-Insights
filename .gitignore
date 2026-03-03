@@ -44,6 +44,7 @@ null
 ui/package-lock.json
 Google_AI_Studio_2026-02-19T17_54_58.651Z.png
 docker-compose.yml
+docker-compose.test-external-db.yml
 config-export.json
 CLAUDE.md
 .coderabbit.yaml

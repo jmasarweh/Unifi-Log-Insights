@@ -12,7 +12,7 @@ import time
 
 from psycopg2 import pool
 
-from db import Database
+from db import Database, build_conn_params, wait_for_postgres
 from enrichment import AbuseIPDBEnricher
 from unifi_api import UniFiAPI
 
@@ -33,23 +33,27 @@ APP_VERSION = _read_version()
 
 # ── Database ─────────────────────────────────────────────────────────────────
 
-conn_params = {
-    'host': '127.0.0.1',
-    'port': 5432,
-    'dbname': 'unifi_logs',
-    'user': 'unifi',
-    'password': os.environ.get('POSTGRES_PASSWORD', 'changeme'),
-}
+conn_params = build_conn_params()
+wait_for_postgres(conn_params)
 
 db_pool = pool.ThreadedConnectionPool(2, 10, **conn_params)
 
 
 def get_conn():
-    return db_pool.getconn()
+    """Get a pooled connection with statement_timeout for API routes."""
+    conn = db_pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = '30s'")
+    except Exception:
+        db_pool.putconn(conn, close=True)
+        raise
+    return conn
 
 
 def put_conn(conn):
-    db_pool.putconn(conn)
+    """Return connection to pool, discarding if broken."""
+    db_pool.putconn(conn, close=bool(conn.closed))
 
 
 # ── AbuseIPDB Enricher (for manual enrich endpoint) ─────────────────────────

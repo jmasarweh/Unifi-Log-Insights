@@ -305,6 +305,69 @@ export default function SettingsDataBackups({ totalLogs, storage }) {
         </div>
       </section>
 
+      {/* ── External Database ────────────────────────────────────── */}
+      <section>
+        <h2 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
+          External Database
+        </h2>
+        <div className="rounded-lg border border-gray-700 bg-gray-950">
+          <div className="p-5 space-y-4">
+            <p className="text-sm text-gray-300">
+              You can point UniFi Log Insight at an existing PostgreSQL 14+ instance instead of using the embedded database.
+              The schema is auto-provisioned on first boot — no need to run <code className="text-xs bg-gray-800 px-1 py-0.5 rounded">init.sql</code> manually.
+            </p>
+
+            {/* Migration steps */}
+            <div className="flex items-start gap-2 bg-blue-500/10 border border-blue-500/30 rounded px-3 py-2.5">
+              <svg className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+              </svg>
+              <div className="text-xs text-blue-400/90 space-y-1.5">
+                <p className="font-medium text-blue-400">Migration Steps</p>
+                <ol className="list-decimal list-inside space-y-1 ml-1">
+                  <li>Export your configuration using Backup &amp; Restore below</li>
+                  <li>Dump data: <code className="bg-blue-500/10 px-1 py-0.5 rounded">docker exec unifi-log-insight pg_dump -U unifi unifi_logs &gt; backup.sql</code></li>
+                  <li>Create the target database and user on the external instance</li>
+                  <li>Restore: <code className="bg-blue-500/10 px-1 py-0.5 rounded">psql -h &lt;host&gt; -U &lt;user&gt; -d &lt;dbname&gt; -f backup.sql</code></li>
+                  <li>Update <code className="bg-blue-500/10 px-1 py-0.5 rounded">docker-compose.yml</code> with <code className="bg-blue-500/10 px-1 py-0.5 rounded">DB_HOST</code>, <code className="bg-blue-500/10 px-1 py-0.5 rounded">DB_PORT</code>, <code className="bg-blue-500/10 px-1 py-0.5 rounded">DB_NAME</code>, <code className="bg-blue-500/10 px-1 py-0.5 rounded">DB_USER</code>, <code className="bg-blue-500/10 px-1 py-0.5 rounded">DB_PASSWORD</code></li>
+                  <li>Remove the <code className="bg-blue-500/10 px-1 py-0.5 rounded">pgdata</code> volume mount (old data will sit unused if left)</li>
+                  <li>Restart: <code className="bg-blue-500/10 px-1 py-0.5 rounded">docker compose up -d</code></li>
+                  <li>Import config backup via Backup &amp; Restore</li>
+                </ol>
+              </div>
+            </div>
+
+            {/* Important notes */}
+            <div className="flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded px-3 py-2.5">
+              <svg className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+              <div className="text-xs text-yellow-400/90 space-y-1">
+                <p className="font-medium text-yellow-400">Important</p>
+                <ul className="list-disc list-inside space-y-0.5 ml-1">
+                  <li><code className="bg-yellow-500/10 px-1 py-0.5 rounded">POSTGRES_PASSWORD</code> is still required (used for API key encryption, not DB connection)</li>
+                  <li>If <code className="bg-yellow-500/10 px-1 py-0.5 rounded">POSTGRES_PASSWORD</code> changes, stored API keys must be re-entered</li>
+                  <li>PostgreSQL 14 or newer is required</li>
+                  <li>The DB user needs CREATE TABLE, CREATE INDEX, CREATE FUNCTION privileges</li>
+                </ul>
+              </div>
+            </div>
+
+            <a
+              href="https://github.com/jmasarweh/unifi-log-insight/wiki/External-Database"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              Full Guide
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      </section>
+
       {/* ── Export / Import Configuration ──────────────────────── */}
       <section>
         <h2 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">

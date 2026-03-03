@@ -7,7 +7,7 @@ services:
       - "514:514/udp"
       - "8090:8000"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data      # Not needed when using external DB
       - ./maxmind:/app/maxmind
     # If you add real credentials here, do not commit this file.
     environment:
@@ -19,12 +19,19 @@ services:
       TZ: "Europe/London"
       UNIFI_API_KEY: "your_unifi_api_key_here"
       UNIFI_HOST: "https://192.168.1.1"
+      # ── External Database (uncomment to use) ──
+      # DB_HOST: "postgres"
+      # DB_PORT: "5432"
+      # DB_NAME: "unifi_logs"
+      # DB_USER: "unifi"
+      # DB_PASSWORD: "your_db_password"
+      # DB_SSLMODE: "require"
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "unifi", "-d", "unifi_logs"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 15s
-      timeout: 5s
+      timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 45s
 
 volumes:
   pgdata:

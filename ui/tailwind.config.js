@@ -7,7 +7,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        mono: ['JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'monospace'],
+        sans: ['UI Sans', 'system-ui', 'sans-serif'],
+        mono: ['Fira Code', 'SF Mono', 'Cascadia Code', 'monospace'],
       },
       colors: {
         gray: {

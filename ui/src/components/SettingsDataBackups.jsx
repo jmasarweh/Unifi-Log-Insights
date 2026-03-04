@@ -22,7 +22,7 @@ function formatBytes(bytes) {
 
 // ── Step pill for migration wizard ──────────────────────────────────────────
 
-const WIZARD_STEPS = ['Configure', 'Test', 'Migrate', 'Done']
+const WIZARD_STEPS = ['Configure', 'Test', 'Migration', 'Migration Summary', 'Post Migration']
 
 function StepPill({ index, label, current }) {
   const done = index < current
@@ -272,7 +272,7 @@ function MigrationWizard() {
               )}
 
               {/* Buttons */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center justify-end gap-3">
                 <button onClick={handleTest} disabled={testing || !form.host.trim()}
                   className="px-4 py-1.5 rounded text-xs font-medium border border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors disabled:opacity-50">
                   {testing ? 'Testing...' : 'Test Connection'}
@@ -312,7 +312,7 @@ function MigrationWizard() {
                 <svg className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                 </svg>
-                <p className="text-xs text-yellow-400/90">Do not restart the container while migration is running.</p>
+                <p className="text-xs text-yellow-400/90">Do not restart the container while migration is running. Large datasets may take several minutes to transfer.</p>
               </div>
 
               {/* Error state */}
@@ -324,10 +324,12 @@ function MigrationWizard() {
                     </svg>
                     <div className="text-xs text-red-400">{migError}</div>
                   </div>
-                  <button onClick={handleReset}
-                    className="px-4 py-1.5 rounded text-xs font-medium border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors">
-                    Back to Configuration
-                  </button>
+                  <div className="flex justify-end">
+                    <button onClick={handleReset}
+                      className="px-4 py-1.5 rounded text-xs font-medium border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors">
+                      Back to Configuration
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -373,11 +375,24 @@ function MigrationWizard() {
                 </div>
               )}
 
+              <div className="flex justify-end">
+                <button onClick={() => setStep(4)}
+                  className="px-4 py-1.5 rounded text-xs font-medium bg-teal-600 text-white hover:bg-teal-500 transition-colors">
+                  Continue to Post Migration
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 4: Post Migration ── */}
+          {step === 4 && (
+            <div className="space-y-4">
+
               {/* Compose patcher — Phase 1: Paste */}
               {!composeOutput && (
                 <div className="space-y-3">
-                  <p className="text-xs text-gray-400">
-                    Paste your current <code className="bg-gray-800 px-1 py-0.5 rounded">docker-compose.yml</code> below to generate an updated version with the external database configuration.
+                  <p className="text-sm text-gray-400">
+                    Update your <code className="bg-gray-800 px-1 py-0.5 rounded">docker-compose.yml</code> to point at the external database. Paste your current file below and we'll generate an updated version.
                   </p>
                   <textarea
                     value={composeInput}
@@ -386,7 +401,7 @@ function MigrationWizard() {
                     rows={10}
                     className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-600 text-xs text-gray-200 font-mono focus:border-blue-500 focus:outline-none resize-y"
                   />
-                  <div className="flex items-center gap-3">
+                  <div className="flex justify-end">
                     <button onClick={handlePatchCompose} disabled={patching || !composeInput.trim()}
                       className="px-4 py-1.5 rounded text-xs font-medium bg-teal-600 text-white hover:bg-teal-500 transition-colors disabled:opacity-50">
                       {patching ? 'Generating...' : 'Generate Updated Compose'}
@@ -406,6 +421,9 @@ function MigrationWizard() {
               {/* Compose patcher — Phase 2: Result */}
               {composeOutput && (
                 <div className="space-y-3">
+                  <p className="text-xs text-gray-400">
+                    1. Copy and save the following as your <code className="bg-gray-800 px-1 py-0.5 rounded">docker-compose.yml</code>
+                  </p>
                   <div className="relative rounded bg-gray-900 border border-gray-700 p-3">
                     <pre className="text-xs text-gray-300 font-mono whitespace-pre overflow-x-auto max-h-96 overflow-y-auto">{composeOutput}</pre>
                     <div className="absolute top-2 right-2">
@@ -415,9 +433,6 @@ function MigrationWizard() {
 
                   {/* Instructions */}
                   <div className="space-y-2">
-                    <p className="text-xs text-gray-400">
-                      1. Save this as your <code className="bg-gray-800 px-1 py-0.5 rounded">docker-compose.yml</code>
-                    </p>
                     <div className="flex items-center gap-2">
                       <p className="text-xs text-gray-400">
                         2. Set <code className="bg-gray-800 px-1 py-0.5 rounded">DB_PASSWORD=&lt;password&gt;</code> in your <code className="bg-gray-800 px-1 py-0.5 rounded">.env</code> file
@@ -458,8 +473,7 @@ function MigrationWizard() {
                       </div>
                     )}
                     <p className="text-xs text-gray-400">
-                      3. Ensure <code className="bg-gray-800 px-1 py-0.5 rounded">SECRET_KEY</code> is set in your <code className="bg-gray-800 px-1 py-0.5 rounded">.env</code> file — it encrypts stored API keys (AbuseIPDB, UniFi, MaxMind).
-                      Set it to the same value as your current <code className="bg-gray-800 px-1 py-0.5 rounded">POSTGRES_PASSWORD</code> so existing keys remain valid.
+                      3. Rename <code className="bg-gray-800 px-1 py-0.5 rounded">POSTGRES_PASSWORD</code> to <code className="bg-gray-800 px-1 py-0.5 rounded">SECRET_KEY</code> in your <code className="bg-gray-800 px-1 py-0.5 rounded">.env</code> file (keep the same value — it encrypts stored API keys).
                     </p>
                     {envCheck && !envCheck.error && !envCheck.has_secret_key && (
                       <div className="flex items-start gap-2 rounded px-3 py-2 bg-yellow-500/10 border border-yellow-500/30">
@@ -489,7 +503,7 @@ function MigrationWizard() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex justify-end">
                     <button onClick={() => { setComposeOutput(''); setComposeInput(''); setEnvCheck(null) }}
                       className="px-4 py-1.5 rounded text-xs font-medium border border-gray-600 text-gray-300 hover:bg-gray-700 transition-colors">
                       Paste Different Compose File
@@ -500,6 +514,17 @@ function MigrationWizard() {
                   </p>
                 </div>
               )}
+              <a
+                href={EXTERNAL_DB_WIKI_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Need help? Open the full external PostgreSQL guide
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
             </div>
           )}
         </div>
@@ -797,9 +822,6 @@ export default function SettingsDataBackups({ totalLogs, storage }) {
         </div>
       </section>
 
-      {/* ── Database Migration ──────────────────────────────────── */}
-      <MigrationWizard />
-
       {/* ── Export / Import Configuration ──────────────────────── */}
       <section>
         <h2 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
@@ -931,6 +953,9 @@ export default function SettingsDataBackups({ totalLogs, storage }) {
           </div>
         </div>
       </section>
+
+      {/* ── Database Migration ──────────────────────────────────── */}
+      <MigrationWizard />
     </div>
   )
 }

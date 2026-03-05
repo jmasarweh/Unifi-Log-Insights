@@ -26,7 +26,7 @@ export default function CopyButton({ text, className = '', color = '' }) {
       className={`ml-1.5 ${colorClass} transition-colors inline-flex items-center ${className}`}
     >
       {copied ? (
-        <span className="text-[11px] text-emerald-400">Copied</span>
+        <span className="text-xs text-emerald-400">Copied</span>
       ) : (
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <rect x="9" y="9" width="13" height="13" rx="2" strokeWidth="2" />

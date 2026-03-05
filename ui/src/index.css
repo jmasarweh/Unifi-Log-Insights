@@ -492,6 +492,37 @@ select:-webkit-autofill {
 [data-theme="light"] .text-yellow-400\/90 { color: #713f12; }
 [data-theme="light"] .text-yellow-500 { color: #5b2c0a; }
 
+/* Blue info boxes & badges */
+[data-theme="light"] .text-blue-400 { color: #1d4ed8; }
+[data-theme="light"] .text-blue-400\/90 { color: rgba(29,78,216,.9); }
+[data-theme="light"] .text-blue-300 { color: #1e40af; }
+[data-theme="light"] .bg-blue-500\/10 { background-color: rgba(59,130,246,.08); }
+[data-theme="light"] .bg-blue-500\/15 { background-color: rgba(59,130,246,.1); }
+[data-theme="light"] .border-blue-500\/30 { border-color: rgba(59,130,246,.3); }
+
+/* Yellow warning banners */
+[data-theme="light"] .bg-yellow-500\/10 { background-color: rgba(234,179,8,.08); }
+[data-theme="light"] .bg-yellow-500\/15 { background-color: rgba(234,179,8,.1); }
+[data-theme="light"] .border-yellow-500\/30 { border-color: rgba(234,179,8,.3); }
+
+/* Emerald success banners */
+[data-theme="light"] .bg-emerald-500\/10 { background-color: rgba(16,185,129,.08); }
+[data-theme="light"] .border-emerald-500\/30 { border-color: rgba(16,185,129,.3); }
+
+/* Red error text */
+[data-theme="light"] .text-red-400 { color: #dc2626; }
+
+/* Violet VLAN badges */
+[data-theme="light"] .bg-violet-500\/15 { background-color: rgba(139,92,246,.1); }
+[data-theme="light"] .border-violet-500\/30 { border-color: rgba(139,92,246,.3); }
+
+/* Teal VPN badges */
+[data-theme="light"] .bg-teal-500\/15 { background-color: rgba(20,184,166,.1); }
+[data-theme="light"] .border-teal-500\/30 { border-color: rgba(20,184,166,.3); }
+
+/* Green success border (MCP) */
+[data-theme="light"] .border-green-500\/30 { border-color: rgba(34,197,94,.3); }
+
 /* Purple — boost contrast for categories */
 [data-theme="light"] .text-purple-400\/70 { color: #7c3aed; }
 [data-theme="light"] .text-violet-400 { color: #6d28d9; }

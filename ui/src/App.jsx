@@ -78,6 +78,7 @@ export default function App() {
   const drillSourceRef = useRef(drillSource)
   drillSourceRef.current = drillSource
   const [unlabeledVpn, setUnlabeledVpn] = useState([])
+  const [allInterfaces, setAllInterfaces] = useState(null)
   const [showWanToast, setShowWanToast] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('ui_theme') || 'dark')
   const [showStatusTooltip, setShowStatusTooltip] = useState(false)
@@ -169,7 +170,9 @@ export default function App() {
     const wanSet = new Set(config.wan_interfaces || [])
 
     fetchInterfaces().then(data => {
-      const unlabeled = (data.interfaces || []).filter(i => {
+      const ifaces = data.interfaces || []
+      setAllInterfaces(ifaces)
+      const unlabeled = ifaces.filter(i => {
         if (wanSet.has(i.name) || i.name.startsWith('br') || i.name.startsWith('eth')) return false
         if (vpnNets[i.name]) return false
         return isVpnInterface(i.name)
@@ -435,7 +438,7 @@ export default function App() {
                 type="button"
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-2 sm:px-3 py-2 sm:py-1.5 rounded text-[11px] sm:text-xs font-medium transition-all min-h-[44px] sm:min-h-0 ${
+                className={`px-2 sm:px-3 py-2 sm:py-1.5 rounded text-xs sm:text-sm font-medium transition-all min-h-[44px] sm:min-h-0 ${
                   activeTab === tab.id
                     ? 'bg-gray-800 text-white'
                     : 'text-gray-400 hover:text-gray-200'
@@ -528,7 +531,7 @@ export default function App() {
 
       {/* Content */}
       <main className="flex-1 overflow-hidden">
-        {activeTab === 'logs' && <LogStream version={health?.version} latestRelease={latestRelease} maxFilterDays={maxFilterDays} drillFilters={logsDrill} onDrillConsumed={clearLogsDrill} />}
+        {activeTab === 'logs' && <LogStream version={health?.version} latestRelease={latestRelease} maxFilterDays={maxFilterDays} drillFilters={logsDrill} onDrillConsumed={clearLogsDrill} interfaces={allInterfaces} />}
         <Suspense fallback={<DashboardSkeleton />}>
           {activeTab === 'dashboard' && <Dashboard maxFilterDays={maxFilterDays} />}
         </Suspense>

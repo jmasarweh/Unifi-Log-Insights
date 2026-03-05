@@ -27,7 +27,7 @@ const RESET_FILTERS = {
   log_type: null, rule_action: null, direction: null, vpn_only: null,
 }
 
-export default function FilterBar({ filters, onChange, maxFilterDays }) {
+export default function FilterBar({ filters, onChange, maxFilterDays, prefetchedInterfaces }) {
   const [ipSearch, setIpSearch] = useState(filters.ip || '')
   const [ruleSearch, setRuleSearch] = useState(filters.rule_name || '')
   const [textSearch, setTextSearch] = useState(filters.search || '')
@@ -101,12 +101,13 @@ export default function FilterBar({ filters, onChange, maxFilterDays }) {
       .catch(err => { console.error('Failed to load protocols:', err); setProtocols([]) })
   }, [])
 
-  // Load interfaces for filtering
+  // Load interfaces for filtering (skip fetch if parent already provided them)
   useEffect(() => {
+    if (prefetchedInterfaces) { setInterfaces(prefetchedInterfaces); return }
     fetchInterfaces()
       .then(data => setInterfaces(data.interfaces || []))
       .catch(err => { console.error('Failed to load interfaces:', err); setInterfaces([]) })
-  }, [])
+  }, [prefetchedInterfaces])
 
   // Debounce text inputs
   useEffect(() => {

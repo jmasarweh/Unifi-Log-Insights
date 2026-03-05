@@ -55,7 +55,7 @@ const BASE_SECTIONS = [
   },
   {
     id: 'mcp',
-    label: <span className="flex items-center gap-1.5">MCP <span className="text-xs leading-none px-1 py-px rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">Beta</span></span>,
+    label: 'MCP',
     icon: (
       <img src="/mcp-logo.png" alt="MCP" className="mcp-logo" />
     ),
@@ -153,12 +153,12 @@ export default function SettingsOverlay({ onClose, startInReconfig, unlabeledVpn
     <div className="fixed inset-0 z-50 flex flex-col bg-gray-950">
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-2 border-b border-gray-800 bg-gray-950 shrink-0">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0 overflow-x-auto flex-nowrap [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
           {/* Mobile sidebar toggle */}
           <button
             type="button"
             onClick={() => setSidebarOpen(v => !v)}
-            className="md:hidden p-1.5 -ml-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors"
+            className="md:hidden p-1.5 -ml-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors min-h-[44px] sm:min-h-0 flex items-center"
             aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
             aria-expanded={sidebarOpen}
           >
@@ -166,14 +166,14 @@ export default function SettingsOverlay({ onClose, startInReconfig, unlabeledVpn
               <path fillRule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 10.5a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z" clipRule="evenodd" />
             </svg>
           </button>
-          <div className="flex items-center gap-2">
-            <svg viewBox="0 0 24 24" className="hidden md:block w-6 h-6 text-blue-400" fill="none" stroke="currentColor" aria-hidden="true">
+          <div className="flex items-center gap-2 shrink-0">
+            <svg viewBox="0 0 24 24" className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" aria-hidden="true">
               <circle cx="12" cy="12" r="10.5" strokeWidth="1.5" strokeOpacity="0.4" />
               <path d="M8.5 7.5v5.5a3.5 3.5 0 0 0 7 0V7.5" strokeWidth="2.2" strokeLinecap="round" />
             </svg>
-            <span className="hidden md:inline text-sm font-semibold text-gray-200">UniFi Log Insight</span>
+            <span className="hidden sm:inline text-sm font-semibold text-gray-200">UniFi Log Insight</span>
           </div>
-          <span className="text-xs text-gray-400 flex items-center">
+          <span className="text-xs sm:text-sm text-gray-400 flex items-center">
             <span className="hidden md:inline">Settings</span>
             <span className="md:hidden text-gray-200">{sections.find(s => s.id === activeSection)?.label || 'Settings'}</span>
             {reconfigMode && (
@@ -212,7 +212,7 @@ export default function SettingsOverlay({ onClose, startInReconfig, unlabeledVpn
         )}
 
         {/* Sidebar — always visible on desktop, slide-over on mobile */}
-        {/* top-[41px] offsets below the fixed header (h-[41px] = py-2 + content + border) */}
+        {/* top-[41px] offsets below the fixed header (py-2 + content + border) */}
         <nav className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static top-[41px] bottom-0 left-0 z-50 md:z-auto w-52 shrink-0 border-r border-gray-800 bg-gray-950 py-4 overflow-y-auto flex flex-col transition-transform duration-200 ease-in-out`}>
           {sections.map(section => (
             <button

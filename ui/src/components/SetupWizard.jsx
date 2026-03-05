@@ -458,12 +458,12 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                                 ? <span className="text-gray-500">(user edited)</span>
                                 : isGuess
                                   ? <span className="text-yellow-400/80">(best guess &mdash; edit if needed)</span>
-                                  : <span className="text-emerald-400/80">Verified from Gateway</span>
+                                  : <span className="text-emerald-400/80 whitespace-nowrap">Verified from Gateway</span>
                               }
                             </div>
                           </div>
                           {ifaceInvalid && (
-                            <p className="text-[11px] text-red-400 mt-1.5">
+                            <p className="text-xs text-red-400 mt-1.5">
                               {ifaceInvalid}
                             </p>
                           )}
@@ -520,7 +520,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                         </button>
                       </div>
                       {manualWanError && (
-                        <p className="text-[11px] text-red-400 mt-1.5">{manualWanError}</p>
+                        <p className="text-xs text-red-400 mt-1.5">{manualWanError}</p>
                       )}
                     </div>
                   )}
@@ -592,13 +592,13 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                   {(wanEntries.length > 0 || wanInterfaces.length > wanEntries.length) && (
                     <section>
                       <h3 className="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">WAN Interfaces</h3>
-                      <div className="overflow-hidden rounded-lg border border-gray-700">
+                      <div className="overflow-x-auto rounded-lg border border-gray-700">
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="text-xs text-gray-400 border-b border-gray-700">
-                              <th className="px-4 py-2 text-left font-medium">Interface</th>
-                              <th className="px-4 py-2 text-left font-medium">WAN IP</th>
-                              <th className="px-4 py-2 text-left font-medium">Network Label</th>
+                              <th className="px-4 py-2 text-left font-medium whitespace-nowrap">Interface</th>
+                              <th className="px-4 py-2 text-left font-medium whitespace-nowrap">WAN IP</th>
+                              <th className="px-4 py-2 text-left font-medium whitespace-nowrap">Network Label</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -673,13 +673,13 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                   {(apiNetConfig?.networks || []).length > 0 && (
                     <section>
                       <h3 className="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">Network Labels</h3>
-                      <div className="overflow-hidden rounded-lg border border-gray-700">
+                      <div className="overflow-x-auto rounded-lg border border-gray-700">
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="text-xs text-gray-400 border-b border-gray-700">
-                              <th className="px-4 py-2 text-left font-medium">Interface</th>
-                              <th className="px-4 py-2 text-left font-medium">Network Label</th>
-                              <th className="px-4 py-2 text-left font-medium">
+                              <th className="px-4 py-2 text-left font-medium whitespace-nowrap">Interface</th>
+                              <th className="px-4 py-2 text-left font-medium whitespace-nowrap">Network Label</th>
+                              <th className="px-4 py-2 text-left font-medium whitespace-nowrap">
                                 <div>Network Pool / CIDR</div>
                                 <div className="font-normal text-xs text-gray-500 normal-case tracking-normal">First IP = Gateway</div>
                               </th>
@@ -723,7 +723,6 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                     <section>
                       <h3 className="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">
                         VPN Networks
-                        <span className="ml-2 text-xs font-medium normal-case tracking-normal px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">Experimental</span>
                       </h3>
                       <VpnNetworkTable
                         entries={[...vpnSegments].sort((a, b) => {

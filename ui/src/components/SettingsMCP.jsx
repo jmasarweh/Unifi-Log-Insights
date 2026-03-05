@@ -413,10 +413,10 @@ export default function SettingsMCP() {
                 >
                   <div className="min-w-0">
                     <p className="text-sm text-gray-200 font-medium truncate">{token.name}</p>
-                    <p className="text-[11px] text-gray-500 font-mono truncate">
+                    <p className="text-xs text-gray-500 font-mono truncate">
                       {token.token_prefix?.startsWith('uli-mcp') ? '' : 'uli-mcp_'}{token.token_prefix}… · {token.scopes?.join(', ') || 'no scopes'}
                     </p>
-                    <p className="text-[11px] text-gray-600">
+                    <p className="text-xs text-gray-600">
                       Created {token.created_at ? new Date(token.created_at).toLocaleString() : 'unknown'}
                       {token.last_used_at && ` · Last used ${new Date(token.last_used_at).toLocaleString()}`}
                     </p>
@@ -430,7 +430,7 @@ export default function SettingsMCP() {
                     {!token.disabled && (
                       <button
                         onClick={() => handleRevoke(token.id)}
-                        className="px-2 py-1 text-[11px] font-semibold rounded bg-teal-600 hover:bg-teal-500 text-white transition-colors"
+                        className="px-2 py-1 text-xs font-semibold rounded bg-teal-600 hover:bg-teal-500 text-white transition-colors"
                       >
                         Revoke
                       </button>
@@ -453,7 +453,7 @@ export default function SettingsMCP() {
             {/* Token status banner */}
             {lastCreatedToken ? (
               <div className="px-5 pt-4 pb-0">
-                <div className="flex items-start gap-2 text-[11px] px-3 py-2 rounded border border-green-500/30 bg-green-500/10 text-green-300">
+                <div className="flex items-start gap-2 text-xs px-3 py-2 rounded border border-green-500/30 bg-green-500/10 text-green-300">
                   <svg className="w-3.5 h-3.5 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.06l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
                   </svg>
@@ -462,7 +462,7 @@ export default function SettingsMCP() {
               </div>
             ) : (
               <div className="px-5 pt-4 pb-0">
-                <div className="flex items-start gap-2 text-[11px] px-3 py-2 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400">
+                <div className="flex items-start gap-2 text-xs px-3 py-2 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400">
                   <svg className="w-3.5 h-3.5 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                   </svg>
@@ -496,34 +496,34 @@ export default function SettingsMCP() {
                 <ClaudeIcon />
                 <p className="text-xs font-semibold text-gray-200">Claude Desktop</p>
               </div>
-              <p className="text-[11px] text-gray-500">
+              <p className="text-xs text-gray-500">
                 Config file location — macOS: <span className="font-mono">~/Library/Application Support/Claude/claude_desktop_config.json</span>{' '}
                 Windows: <span className="font-mono">%APPDATA%\Claude\claude_desktop_config.json</span>
               </p>
 
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-gray-300">Copy full config</span>
+                  <span className="text-xs text-gray-300">Copy full config</span>
                   <CopyButton text={fullConfig} color={TEAL} className="ml-0" />
-                  <span className="text-gray-600 text-[11px]">·</span>
+                  <span className="text-gray-600 text-xs">·</span>
                   <details className="inline">
-                    <summary className="text-[11px] text-teal-400 hover:text-teal-300 cursor-pointer">Show example</summary>
-                    <pre className="mt-2 text-[11px] text-gray-300 bg-gray-900 border border-gray-800 rounded p-3 overflow-x-auto whitespace-pre font-mono">
+                    <summary className="text-xs text-teal-400 hover:text-teal-300 cursor-pointer">Show example</summary>
+                    <pre className="mt-2 text-xs text-gray-300 bg-gray-900 border border-gray-800 rounded p-3 overflow-x-auto whitespace-pre font-mono">
                       {fullConfig}
                     </pre>
                   </details>
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-gray-300">Copy server entry</span>
+                  <span className="text-xs text-gray-300">Copy server entry</span>
                   <CopyButton text={serverEntry} color={TEAL} className="ml-0" />
-                  <span className="text-gray-600 text-[11px]">·</span>
+                  <span className="text-gray-600 text-xs">·</span>
                   <details className="inline">
-                    <summary className="text-[11px] text-teal-400 hover:text-teal-300 cursor-pointer">Show example</summary>
-                    <pre className="mt-2 text-[11px] text-gray-300 bg-gray-900 border border-gray-800 rounded p-3 overflow-x-auto whitespace-pre font-mono">
+                    <summary className="text-xs text-teal-400 hover:text-teal-300 cursor-pointer">Show example</summary>
+                    <pre className="mt-2 text-xs text-gray-300 bg-gray-900 border border-gray-800 rounded p-3 overflow-x-auto whitespace-pre font-mono">
                       {serverEntry}
                     </pre>
-                    <p className="mt-1 text-[11px] text-gray-500">Paste inside the <span className="font-mono font-semibold">mcpServers</span> block, after the last existing entry.</p>
+                    <p className="mt-1 text-xs text-gray-500">Paste inside the <span className="font-mono font-semibold">mcpServers</span> block, after the last existing entry.</p>
                   </details>
                 </div>
               </div>
@@ -548,10 +548,10 @@ export default function SettingsMCP() {
               </div>
 
               <div className="rounded bg-gray-900 border border-gray-800 p-3 overflow-x-auto">
-                <pre className="text-[11px] text-gray-300 font-mono whitespace-pre">{cliCommand}</pre>
+                <pre className="text-xs text-gray-300 font-mono whitespace-pre">{cliCommand}</pre>
               </div>
               <div className="flex items-center justify-end gap-1.5">
-                <span className="text-[11px] text-gray-300">Copy CLI command</span>
+                <span className="text-xs text-gray-300">Copy CLI command</span>
                 <CopyButton text={cliCommand} color={TEAL} className="ml-0" />
               </div>
             </div>
@@ -566,10 +566,10 @@ export default function SettingsMCP() {
               </div>
 
               <div className="rounded bg-gray-900 border border-gray-800 p-3 overflow-x-auto">
-                <pre className="text-[11px] text-gray-300 font-mono whitespace-pre">{geminiCommand}</pre>
+                <pre className="text-xs text-gray-300 font-mono whitespace-pre">{geminiCommand}</pre>
               </div>
               <div className="flex items-center justify-end gap-1.5">
-                <span className="text-[11px] text-gray-300">Copy CLI command</span>
+                <span className="text-xs text-gray-300">Copy CLI command</span>
                 <CopyButton text={geminiCommand} color={TEAL} className="ml-0" />
               </div>
             </div>
@@ -578,7 +578,7 @@ export default function SettingsMCP() {
 
             {/* Other MCP clients */}
             <div className="px-5 py-3">
-              <p className="text-[11px] text-gray-500">
+              <p className="text-xs text-gray-500">
                 Any desktop MCP client that supports Streamable HTTP transport can connect using the server URL and bearer token above.
               </p>
             </div>
@@ -625,10 +625,10 @@ export default function SettingsMCP() {
                         <p className="text-sm text-gray-200 font-medium truncate">
                           {entry.tool_name}
                           {entry.scope && (
-                            <span className="text-[11px] text-gray-500 font-mono ml-2">{entry.scope}</span>
+                            <span className="text-xs text-gray-500 font-mono ml-2">{entry.scope}</span>
                           )}
                         </p>
-                        <p className="text-[11px] text-gray-500">
+                        <p className="text-xs text-gray-500">
                           {entry.created_at ? new Date(entry.created_at).toLocaleString() : 'unknown time'}
                           {entry.token_name && ` · ${entry.token_name}`}
                           {entry.token_prefix && ` (${entry.token_prefix}…)`}
@@ -648,8 +648,8 @@ export default function SettingsMCP() {
                       </div>
                     )}
                     <div>
-                      <p className="text-[11px] text-gray-500 mb-1">Request Params</p>
-                      <pre className="text-[11px] text-gray-200 bg-gray-950 border border-gray-800 rounded p-2 overflow-auto">
+                      <p className="text-xs text-gray-500 mb-1">Request Params</p>
+                      <pre className="text-xs text-gray-200 bg-gray-950 border border-gray-800 rounded p-2 overflow-auto">
                         {JSON.stringify(entry.params || {}, null, 2)}
                       </pre>
                     </div>

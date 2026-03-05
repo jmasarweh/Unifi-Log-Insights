@@ -196,13 +196,13 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-          <p className="text-sm text-red-400">Failed to load network segments: {error}</p>
+          <p className="text-xs text-red-400">Failed to load network segments: {error}</p>
         </div>
       )}
 
       {!loading && !error && segments.length === 0 && (
         <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-          <p className="text-sm text-yellow-400">No network interfaces found. Make sure logs are being received.</p>
+          <p className="text-xs text-yellow-400">No network interfaces found. Make sure logs are being received.</p>
         </div>
       )}
 
@@ -210,13 +210,13 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
       {!loading && !error && wanSegments.length > 0 && (
         <section>
           <h3 className="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">WAN Interfaces</h3>
-          <div className="border border-gray-800 rounded-lg overflow-hidden">
+          <div className="border border-gray-800 rounded-lg overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-800">
-                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3">Interface</th>
-                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3">Sample IP</th>
-                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3">Network Label</th>
+                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3 whitespace-nowrap">Interface</th>
+                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3 whitespace-nowrap">Sample IP</th>
+                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3 whitespace-nowrap">Network Label</th>
                 </tr>
               </thead>
               <tbody>
@@ -245,7 +245,7 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
                         }`}
                       />
                       {duplicateLabels.has(seg.interface) && (
-                        <p className="text-[11px] text-yellow-400 mt-1">Duplicate label</p>
+                        <p className="text-xs text-yellow-400 mt-1">Duplicate label</p>
                       )}
                     </td>
                   </tr>
@@ -260,13 +260,13 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
       {!loading && !error && vlanSegments.length > 0 && (
         <section>
           <h3 className="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">Network Labels</h3>
-          <div className="border border-gray-800 rounded-lg overflow-hidden">
+          <div className="border border-gray-800 rounded-lg overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-800">
-                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3">Interface</th>
-                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3">Sample IP</th>
-                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3">Network Label</th>
+                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3 whitespace-nowrap">Interface</th>
+                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3 whitespace-nowrap">Sample IP</th>
+                  <th className="text-left text-xs font-medium text-gray-300 px-4 py-3 whitespace-nowrap">Network Label</th>
                 </tr>
               </thead>
               <tbody>
@@ -308,7 +308,7 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
                           }`}
                         />
                         {duplicateLabels.has(seg.interface) && (
-                          <p className="text-[11px] text-yellow-400 mt-1">Duplicate label</p>
+                          <p className="text-xs text-yellow-400 mt-1">Duplicate label</p>
                         )}
                       </div>
                     </td>
@@ -373,7 +373,6 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
         <section>
           <h3 className="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">
             VPN Networks
-            <span className="ml-2 text-xs font-medium normal-case tracking-normal px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">Experimental</span>
           </h3>
           <VpnNetworkTable
             entries={vpnSegments.map(seg => {

@@ -125,7 +125,7 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-          <p className="text-sm text-red-400">Failed to scan logs: {error}</p>
+          <p className="text-xs text-red-400">Failed to scan logs: {error}</p>
         </div>
       )}
 
@@ -133,7 +133,7 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
       {!loading && !error && candidates.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-300">
+            <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
               Detected in your logs
             </h3>
             <button
@@ -205,7 +205,7 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
       {/* Common UniFi WAN interfaces */}
       {!loading && !error && (
         <div>
-          <h3 className="text-sm font-semibold text-gray-300 mb-2">
+          <h3 className="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">
             Common UniFi WAN interfaces
           </h3>
           <p className="text-xs text-gray-400 mb-3">
@@ -249,7 +249,7 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
       {/* Manual entry */}
       {!loading && !error && (
         <div>
-          <h3 className="text-sm font-semibold text-gray-300 mb-2">
+          <h3 className="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">
             Custom interface name
           </h3>
           <p className="text-xs text-gray-400 mb-3">
@@ -278,7 +278,7 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
             </button>
           </div>
           {manualError && (
-            <p className="text-[11px] text-red-400 mt-1.5">{manualError}</p>
+            <p className="text-xs text-red-400 mt-1.5">{manualError}</p>
           )}
         </div>
       )}
@@ -309,7 +309,7 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
       {/* WAN Interface Labels */}
       {!loading && !error && selected.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-gray-300 mb-2">
+          <h3 className="text-sm font-semibold text-gray-300 mb-2 uppercase tracking-wider">
             Add a Label to your WAN Interfaces
           </h3>
           <p className="text-xs text-gray-400 mb-3">
@@ -336,7 +336,7 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
       {/* Multi-WAN warning */}
       {!loading && !error && selected.length > 1 && (
         <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-          <p className="text-sm text-yellow-400">
+          <p className="text-xs text-yellow-400">
             If your WAN interfaces change (failover, maintenance), update this
             configuration via Settings → Reconfigure to maintain accurate direction
             classification.

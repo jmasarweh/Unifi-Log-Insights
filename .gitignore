@@ -9,6 +9,10 @@ maxmind/
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+receiver/.pytest_cache/
+htmlcov/
+.coverage
 
 # Node
 ui/node_modules/

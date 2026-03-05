@@ -29,7 +29,7 @@ function StepPill({ index, label, current }) {
   const active = index === current
   return (
     <div className="flex items-center gap-1.5">
-      <span className={`w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0 ${
+      <span className={`w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center shrink-0 ${
         done ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
         : active ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
         : 'bg-gray-800 text-gray-600 border border-gray-700'
@@ -148,7 +148,7 @@ function MigrationWizard() {
             <svg className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
             </svg>
-            <p className="text-sm text-emerald-400">Already using an external database. Migration is not available.</p>
+            <p className="text-xs text-emerald-400">Already using an external database. Migration is not available.</p>
           </div>
         </div>
       </section>
@@ -192,7 +192,7 @@ function MigrationWizard() {
                   <input id="mig-host" value={form.host} onChange={e => setField('host', e.target.value)}
                     placeholder="e.g. postgres or 192.168.1.50"
                     className="w-full px-3 py-1.5 rounded bg-gray-900 border border-gray-600 text-sm text-gray-200 focus:border-blue-500 focus:outline-none" />
-                  <p className="text-[11px] text-blue-400 mt-1">
+                  <p className="text-xs text-blue-400 mt-1">
                     If PostgreSQL is in another Docker container on this host, use a host-routable address and mapped port
                     (for example <code className="bg-gray-800 px-1 py-0.5 rounded">host.docker.internal:5432</code> on Docker Desktop
                     or the host gateway IP on Linux). Do not use container bridge IPs like <code className="bg-gray-800 px-1 py-0.5 rounded">172.18.x.x</code>.
@@ -349,7 +349,7 @@ function MigrationWizard() {
 
                   {/* Row count validation table */}
                   {migStatus?.details?.validation && (
-                    <div className="rounded border border-gray-700 overflow-hidden">
+                    <div className="rounded border border-gray-700 overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="bg-gray-900">
@@ -442,7 +442,7 @@ function MigrationWizard() {
                         2. Set <code className="bg-gray-800 px-1 py-0.5 rounded">DB_PASSWORD=&lt;password&gt;</code> in your <code className="bg-gray-800 px-1 py-0.5 rounded">.env</code> file
                       </p>
                       <button onClick={handleCheckEnv} disabled={envChecking}
-                        className="px-2 py-0.5 rounded text-[11px] font-medium border border-gray-600 text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors disabled:opacity-50 shrink-0">
+                        className="px-2 py-0.5 rounded text-xs font-medium border border-gray-600 text-gray-400 hover:bg-gray-700 hover:text-gray-200 transition-colors disabled:opacity-50 shrink-0">
                         {envChecking ? 'Checking...' : 'Check Environment'}
                       </button>
                     </div>
@@ -465,7 +465,7 @@ function MigrationWizard() {
                             <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                           )}
                         </svg>
-                        <p className={`text-[11px] ${
+                        <p className={`text-xs ${
                           envCheck.error ? 'text-red-400'
                           : envCheck.has_db_password ? 'text-emerald-400'
                           : 'text-yellow-400'
@@ -484,7 +484,7 @@ function MigrationWizard() {
                         <svg className="w-3.5 h-3.5 shrink-0 mt-0.5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                         </svg>
-                        <p className="text-[11px] text-yellow-400">Neither SECRET_KEY nor POSTGRES_PASSWORD is set. API key encryption will not work.</p>
+                        <p className="text-xs text-yellow-400">Neither SECRET_KEY nor POSTGRES_PASSWORD is set. API key encryption will not work.</p>
                       </div>
                     )}
                     <p className="text-xs text-gray-400">
@@ -497,7 +497,7 @@ function MigrationWizard() {
                     <svg className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
                     </svg>
-                    <div className="text-[11px] text-blue-400/90 space-y-1">
+                    <div className="text-xs text-blue-400/90 space-y-1">
                       <p>
                         Your old embedded database volume (<code className="bg-gray-800 px-1 py-0.5 rounded">pgdata</code>) still exists on disk as a safety net.
                         Once you've confirmed the external database is working, you can remove it with:
@@ -513,7 +513,7 @@ function MigrationWizard() {
                       Paste Different Compose File
                     </button>
                   </div>
-                  <p className="text-[11px] text-gray-500">
+                  <p className="text-xs text-gray-500">
                     YAML comments from your original file are not preserved.
                   </p>
                 </div>
@@ -693,7 +693,7 @@ export default function SettingsDataBackups({ totalLogs, storage }) {
                   <button
                     key={preset}
                     onClick={() => setRetentionDays(preset)}
-                    className={`text-[11px] font-mono px-2 py-0.5 rounded border transition-colors ${
+                    className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors ${
                       retentionDays === preset
                         ? 'border-blue-500 text-blue-400 bg-blue-500/10'
                         : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'
@@ -920,7 +920,7 @@ export default function SettingsDataBackups({ totalLogs, storage }) {
                       </span>
                     </div>
                   ) : (
-                    <p className="text-[11px] text-blue-400/70 mt-2">
+                    <p className="text-xs text-blue-400/70 mt-2">
                       No API key in this backup. Your existing key will be kept, or you can add one later in UniFi Settings.
                     </p>
                   )}

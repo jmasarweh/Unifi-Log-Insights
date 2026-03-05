@@ -1,7 +1,9 @@
 services:
   unifi-log-insight:
-    image: ghcr.io/jmasarweh/unifi-log-insight:latest
-    container_name: unifi-log-insight
+    #image: ghcr.io/jmasarweh/unifi-log-insight:3.1.0-beta.2
+    build: .
+    pull_policy: always
+    container_name: log-insight-local
     restart: unless-stopped
     ports:
       - "514:514/udp"
@@ -10,22 +12,8 @@ services:
       - pgdata:/var/lib/postgresql/data      # Not needed when using external DB
       - ./maxmind:/app/maxmind
     # If you add real credentials here, do not commit this file.
-    environment:
-      POSTGRES_PASSWORD: "your_strong_password_here"
-      ABUSEIPDB_API_KEY: "your_key_here"
-      MAXMIND_ACCOUNT_ID: "your_account_id"
-      MAXMIND_LICENSE_KEY: "your_license_key"
-      LOG_LEVEL: "INFO"
-      TZ: "Europe/London"
-      UNIFI_API_KEY: "your_unifi_api_key_here"
-      UNIFI_HOST: "https://192.168.1.1"
-      # ── External Database (uncomment to use) ──
-      # DB_HOST: "postgres"
-      # DB_PORT: "5432"
-      # DB_NAME: "unifi_logs"
-      # DB_USER: "unifi"
-      # DB_PASSWORD: "your_db_password"
-      # DB_SSLMODE: "require"
+    env_file:
+    - .env
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 15s

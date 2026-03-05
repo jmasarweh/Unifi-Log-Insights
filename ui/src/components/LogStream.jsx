@@ -43,7 +43,7 @@ const TOGGLEABLE_COLUMNS = [
   { key: 'categories', label: 'Categories' },
 ]
 
-export default function LogStream({ version, latestRelease, maxFilterDays, drillFilters, onDrillConsumed }) {
+export default function LogStream({ version, latestRelease, maxFilterDays, drillFilters, onDrillConsumed, interfaces: prefetchedInterfaces }) {
   const [filters, setFilters] = useState(() => {
     const restored = { ...DEFAULT_FILTERS }
     try {
@@ -279,7 +279,7 @@ export default function LogStream({ version, latestRelease, maxFilterDays, drill
       )}
       {/* Filters */}
       <div className="px-4 py-2.5 border-b border-gray-800 bg-gray-950 relative z-20">
-        <FilterBar filters={filters} onChange={handleFilterChange} maxFilterDays={maxFilterDays} />
+        <FilterBar filters={filters} onChange={handleFilterChange} maxFilterDays={maxFilterDays} prefetchedInterfaces={prefetchedInterfaces} />
       </div>
 
       {/* Toolbar */}

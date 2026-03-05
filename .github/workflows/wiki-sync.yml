@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'docs/wiki/**'
+  workflow_dispatch:
 
 jobs:
   sync:

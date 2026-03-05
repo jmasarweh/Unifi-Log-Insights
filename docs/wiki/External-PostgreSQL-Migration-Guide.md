@@ -143,7 +143,6 @@ This step helps you update your `docker-compose.yml` for external database mode.
    - `DB_SSLMODE` and `DB_SSLROOTCERT` if SSL is configured
    - Healthcheck swapped from `pg_isready` to HTTP check (embedded PostgreSQL is disabled in external mode)
    - Removes the `pgdata` volume mount (no longer needed)
-   - Adds Docker network configuration if you specified a Docker network name
    - All other settings (ports, labels, other env vars, etc.) are preserved
 
 **After generating, follow the numbered steps shown in the wizard:**
@@ -213,10 +212,10 @@ After restarting with the updated compose file:
 To remove just the old volume:
 
 ```bash
-docker volume rm <project-name>_pgdata
+docker volume rm unifi-log-insight-pgdata
 ```
 
-You can find the exact volume name with:
+If your volume has a different name, find it with:
 
 ```bash
 docker volume ls | grep pgdata

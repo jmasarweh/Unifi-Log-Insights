@@ -1,11 +1,18 @@
 // Country flag SVG icon (works on all platforms including Windows)
 import React from 'react'
 
-export function FlagIcon({ code }) {
+const _regionNames = new Intl.DisplayNames(['en'], { type: 'region' })
+export function countryName(code) {
+  if (!code) return ''
+  try { return _regionNames.of(code.toUpperCase()) || code } catch { return code }
+}
+
+export function FlagIcon({ code, size = 14 }) {
   if (!code) return null
   return React.createElement('span', {
     className: `fi fi-${code.toLowerCase()}`,
-    style: { fontSize: '14px', lineHeight: 1 },
+    style: { fontSize: `${size}px`, lineHeight: 1 },
+    title: countryName(code),
   })
 }
 

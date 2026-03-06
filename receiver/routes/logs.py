@@ -339,7 +339,7 @@ def _serialize_log(row):
     for key in ('timestamp', 'created_at', 'abuse_last_reported'):
         if log.get(key):
             log[key] = log[key].isoformat()
-    for key in ('src_ip', 'dst_ip', 'mac_address'):
+    for key in ('src_ip', 'dst_ip', 'remote_ip', 'mac_address'):
         if log.get(key):
             log[key] = str(log[key])
     if log.get('geo_lat') is not None:

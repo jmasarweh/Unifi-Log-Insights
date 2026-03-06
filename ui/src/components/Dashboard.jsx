@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { fetchStats } from '../api'
-import { formatNumber, FlagIcon, decodeThreatCategories, LOG_TYPE_STYLES, formatServiceName } from '../utils'
+import { formatNumber, FlagIcon, countryName, decodeThreatCategories, LOG_TYPE_STYLES, ACTION_STYLES, formatServiceName, DIRECTION_ICONS, DIRECTION_COLORS } from '../utils'
 import { getThreatLevel } from '../lib/threatPresentation'
 import NetworkBadge from './NetworkBadge'
 import useTimeRange from '../hooks/useTimeRange'
@@ -15,17 +15,25 @@ export function DashboardSkeleton() {
           <div key={i} className="h-7 w-10 bg-gray-800 rounded" />
         ))}
       </div>
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {[...Array(5)].map((_, i) => (
-          <div key={i} className="border border-gray-800 rounded-lg p-4 space-y-2">
-            <div className="h-2.5 w-16 bg-gray-800 rounded" />
-            <div className="h-6 w-12 bg-gray-800 rounded" />
+      {/* Summary cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="border border-gray-800 rounded-lg p-4 space-y-3">
+          <div className="h-2.5 w-24 bg-gray-800 rounded" />
+          <div className="h-7 w-16 bg-gray-800 rounded" />
+          <div className="flex gap-2">
+            {[...Array(3)].map((_, i) => <div key={i} className="h-6 w-20 bg-gray-800 rounded" />)}
           </div>
-        ))}
+          <div className="flex gap-2 pt-3 border-t border-gray-800/50">
+            {[...Array(4)].map((_, i) => <div key={i} className="h-6 w-24 bg-gray-800 rounded" />)}
+          </div>
+        </div>
+        <div className="border border-gray-800 rounded-lg p-4 space-y-3">
+          <div className="h-2.5 w-16 bg-gray-800 rounded" />
+          <div className="flex flex-wrap gap-2">
+            {[...Array(4)].map((_, i) => <div key={i} className="h-6 w-24 bg-gray-800 rounded" />)}
+          </div>
+        </div>
       </div>
-      {/* Direction breakdown */}
-      <div className="border border-gray-800 rounded-lg p-4 h-16" />
       {/* Charts */}
       <div className="border border-gray-800 rounded-lg p-4 h-40" />
       <div className="border border-gray-800 rounded-lg p-4 h-52" />
@@ -49,15 +57,6 @@ export function DashboardSkeleton() {
   )
 }
 
-function StatCard({ label, value, color = 'text-white', sub }) {
-  return (
-    <div className="border border-gray-800 rounded-lg p-4 overflow-hidden">
-      <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">{label}</div>
-      <div className={`text-xl sm:text-2xl font-semibold ${color}`}>{formatNumber(value)}</div>
-      {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
-    </div>
-  )
-}
 
 function MiniBar({ data, maxVal, color = 'bg-blue-500' }) {
   if (!maxVal) return null
@@ -293,63 +292,51 @@ export default function Dashboard({ maxFilterDays }) {
         ))}
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <StatCard label="Total Logs" value={stats.total} />
-        <StatCard
-          label="Blocked"
-          value={stats.blocked}
-          color={stats.blocked > 0 ? 'text-red-400' : 'text-gray-300'}
-        />
-        <StatCard
-          label="Threats (>50%)"
-          value={stats.threats}
-          color={stats.threats > 0 ? 'text-orange-400' : 'text-gray-300'}
-        />
-        <StatCard
-          label="Allowed"
-          value={stats.allowed || 0}
-          color={(stats.allowed || 0) > 0 ? 'text-green-400' : 'text-gray-300'}
-        />
-        <StatCard
-          label="Log Types"
-          value={Object.keys(stats.by_type).length}
-          sub={
-            <span className="inline-flex flex-wrap gap-1">
-              {Object.entries(stats.by_type).map(([t, c]) => (
-                <span key={t} className={`inline-block px-1 py-0 rounded text-[8px] font-semibold uppercase border ${LOG_TYPE_STYLES[t] || LOG_TYPE_STYLES.system}`}>
-                  {t} {formatNumber(c)}
+      {/* Summary cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Traffic Overview */}
+        <div className="border border-gray-800 rounded-lg p-4">
+          <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Traffic Overview</div>
+          <div className="flex items-baseline gap-2 mb-3">
+            <span className="text-2xl font-semibold text-white">{formatNumber(stats.total)}</span>
+            <span className="text-xs text-gray-500">total logs</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 mb-3">
+            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold uppercase border ${ACTION_STYLES.allow}`}>
+              Allowed {formatNumber(stats.allowed || 0)}
+            </span>
+            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold uppercase border ${ACTION_STYLES.block}`}>
+              Blocked {formatNumber(stats.blocked)}
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold uppercase border bg-orange-500/15 text-orange-400 border-orange-500/30">
+              Threats {formatNumber(stats.threats)}
+            </span>
+          </div>
+          {Object.keys(stats.by_direction).length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-3 border-t border-gray-800/50">
+              {Object.entries(stats.by_direction).map(([dir, count]) => (
+                <span key={dir} className={`inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-800/50 text-xs font-medium ${DIRECTION_COLORS[dir] || 'text-gray-300'}`}>
+                  <span>{DIRECTION_ICONS[dir]}</span>
+                  <span className="uppercase">{dir === 'inter_vlan' ? 'VLAN' : dir}</span>
+                  <span className="text-gray-400 font-semibold">{formatNumber(count)}</span>
                 </span>
               ))}
-            </span>
-          }
-        />
-      </div>
+            </div>
+          )}
+        </div>
 
-      {/* Direction breakdown */}
-      {Object.keys(stats.by_direction).length > 0 && (
+        {/* Log Types */}
         <div className="border border-gray-800 rounded-lg p-4">
-          <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Traffic Direction</div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:gap-4">
-            {Object.entries(stats.by_direction).map(([dir, count]) => {
-              const colors = {
-                inbound: 'text-red-400',
-                outbound: 'text-blue-400',
-                inter_vlan: 'text-gray-300',
-                nat: 'text-yellow-400',
-              }
-              return (
-                <div key={dir} className="text-center">
-                  <div className={`text-base sm:text-lg font-semibold ${colors[dir] || 'text-gray-300'}`}>
-                    {formatNumber(count)}
-                  </div>
-                  <div className="text-xs text-gray-400 uppercase">{dir === 'inter_vlan' ? 'VLAN' : dir}</div>
-                </div>
-              )
-            })}
+          <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Log Types</div>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(stats.by_type).map(([t, c]) => (
+              <span key={t} className={`inline-block px-2 py-1 rounded text-xs font-semibold uppercase border ${LOG_TYPE_STYLES[t] || LOG_TYPE_STYLES.system}`}>
+                {t} {formatNumber(c)}
+              </span>
+            ))}
           </div>
         </div>
-      )}
+      </div>
 
       {/* Logs over time chart */}
       <div className="border border-gray-800 rounded-lg p-4">
@@ -505,26 +492,30 @@ export default function Dashboard({ maxFilterDays }) {
             if (blocked.length === 0 && allowed.length === 0) return <div className="text-gray-400 text-xs py-4 text-center">No data</div>
             return (
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <div className="text-xs text-red-400/70 mb-1">Blocked</div>
+                <div className="space-y-2">
+                  <span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/40">Blocked</span>
                   {blocked.slice(0, 10).map((item, i) => (
                     <div key={i} className="flex items-center justify-between text-xs">
-                      <span className="text-gray-300 truncate mr-2">
-                        <FlagIcon code={item.country} /> {item.country}
+                      <span className="text-gray-300 truncate mr-2 flex items-center gap-1.5">
+                        <FlagIcon code={item.country} size={18} />
+                        <span className="hidden sm:inline">{countryName(item.country)}</span>
+                        <span className="sm:hidden">{item.country}</span>
                       </span>
-                      <span className="text-red-400/80 shrink-0">{formatNumber(item.count)}</span>
+                      <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/40 shrink-0">{formatNumber(item.count)}</span>
                     </div>
                   ))}
                   {blocked.length === 0 && <div className="text-gray-500 text-xs">—</div>}
                 </div>
-                <div className="space-y-1.5">
-                  <div className="text-xs text-green-400/70 mb-1">Allowed</div>
+                <div className="space-y-2">
+                  <span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Allowed</span>
                   {allowed.slice(0, 10).map((item, i) => (
                     <div key={i} className="flex items-center justify-between text-xs">
-                      <span className="text-gray-300 truncate mr-2">
-                        <FlagIcon code={item.country} /> {item.country}
+                      <span className="text-gray-300 truncate mr-2 flex items-center gap-1.5">
+                        <FlagIcon code={item.country} size={18} />
+                        <span className="hidden sm:inline">{countryName(item.country)}</span>
+                        <span className="sm:hidden">{item.country}</span>
                       </span>
-                      <span className="text-green-400/80 shrink-0">{formatNumber(item.count)}</span>
+                      <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">{formatNumber(item.count)}</span>
                     </div>
                   ))}
                   {allowed.length === 0 && <div className="text-gray-500 text-xs">—</div>}

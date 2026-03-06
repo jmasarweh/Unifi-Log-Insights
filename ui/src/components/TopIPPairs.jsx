@@ -153,7 +153,30 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
       )}
 
       {loading ? (
-        <div className="p-4 text-center text-xs text-gray-500">Loading...</div>
+        <div className="overflow-y-auto overflow-x-hidden min-h-0 flex-1 animate-pulse">
+          <table className="w-full table-fixed">
+            <thead>
+              <tr className="text-xs text-gray-500 uppercase tracking-wider">
+                <th className="text-left px-2 py-2 font-medium w-[30%] sm:w-[25%]">Source</th>
+                <th className="text-left px-2 py-2 font-medium w-[30%] sm:w-[25%]">Destination</th>
+                <th className="text-left px-3 py-2 font-medium w-[20%] sm:w-[16%]">Port/Proto</th>
+                <th className="text-left px-3 py-2 font-medium hidden sm:table-cell sm:w-[14%]">Service</th>
+                <th className="text-left px-3 py-2 font-medium w-[20%] sm:w-[20%]">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...Array(8)].map((_, i) => (
+                <tr key={i} className="border-t border-gray-800/50">
+                  <td className="px-2 py-2.5"><div className="h-3 bg-gray-800 rounded w-3/4" /></td>
+                  <td className="px-2 py-2.5"><div className="h-3 bg-gray-800 rounded w-3/4" /></td>
+                  <td className="px-3 py-2.5"><div className="h-3 bg-gray-800 rounded w-1/2" /></td>
+                  <td className="px-3 py-2.5 hidden sm:table-cell"><div className="h-3 bg-gray-800 rounded w-2/3" /></td>
+                  <td className="px-3 py-2.5"><div className="h-3 bg-gray-800 rounded w-1/2" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : pairs.length === 0 ? (
         <div className="p-4 text-center text-xs text-gray-500">No flow data for this time range</div>
       ) : (

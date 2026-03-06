@@ -1,6 +1,6 @@
 import React from 'react'
 import {
-  formatTime, FlagIcon, getInterfaceName, formatServiceName, resolveIpSublines,
+  formatTime, FlagIcon, countryName, getInterfaceName, formatServiceName, resolveIpSublines,
   normalizeRuleDesc, LOG_TYPE_STYLES, ACTION_STYLES,
   DIRECTION_ICONS, DIRECTION_COLORS, decodeThreatCategories,
 } from '../utils'
@@ -188,7 +188,7 @@ function LogRow({ log, isExpanded, detailedLog, onToggle, hiddenColumns, colCoun
 
         {/* Country */}
         {show('country') && (
-          <td className="px-1 sm:px-2 py-1.5 text-[13px] whitespace-nowrap text-center" title={log.geo_country}>
+          <td className="px-1 sm:px-2 py-1.5 text-[13px] whitespace-nowrap text-center" title={countryName(log.geo_country)}>
             {log.geo_country ? (
               <span className="inline-flex items-center justify-center gap-1">
                 {countryDisplay !== 'name_only' && <FlagIcon code={log.geo_country} />}
@@ -303,11 +303,15 @@ export default function LogTable({ logs, loading, expandedId, detailedLog, onTog
         </thead>
         <tbody>
           {loading ? (
-            <tr>
-              <td colSpan={colCount} className="text-center py-12 text-gray-500 text-sm">
-                Loading...
-              </td>
-            </tr>
+            [...Array(12)].map((_, i) => (
+              <tr key={i} className="animate-pulse border-b border-gray-800/50">
+                {visibleColumns.map(col => (
+                  <td key={col.key} className="px-2 py-2.5">
+                    <div className="h-3 bg-gray-800 rounded w-3/4" />
+                  </td>
+                ))}
+              </tr>
+            ))
           ) : logs.length === 0 ? (
             <tr>
               <td colSpan={colCount} className="text-center py-12 text-gray-500 text-sm">

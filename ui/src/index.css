@@ -707,6 +707,12 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   width: 320px;
   min-width: 320px;
 }
+@media (max-width: 640px) {
+  .threat-sidebar {
+    width: 260px;
+    min-width: 260px;
+  }
+}
 .threat-sidebar .scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: #374151 transparent;

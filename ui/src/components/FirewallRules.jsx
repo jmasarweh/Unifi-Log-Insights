@@ -809,7 +809,23 @@ export default function FirewallRules() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (loading) {
-    return <div className="text-center py-8 text-[#676f79] text-sm">Loading firewall rules...</div>
+    return (
+      <div className="animate-pulse space-y-4">
+        <div className="grid grid-cols-4 gap-2">
+          {[...Array(16)].map((_, i) => <div key={i} className="h-8 bg-gray-800 rounded" />)}
+        </div>
+        <div className="space-y-2">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-3 py-3 border border-gray-800 rounded">
+              <div className="h-4 w-4 bg-gray-800 rounded" />
+              <div className="h-3 bg-gray-800 rounded flex-1" />
+              <div className="h-3 bg-gray-800 rounded w-20" />
+              <div className="h-3 bg-gray-800 rounded w-16" />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   if (error && !data) {

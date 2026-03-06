@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { fetchZoneMatrix } from '../api'
-import { formatNumber } from '../utils'
+import { formatNumber, ACTION_STYLES } from '../utils'
 import FullscreenToggle from './FullscreenToggle'
 import InfoTooltip from './InfoTooltip'
 
@@ -97,7 +97,7 @@ export default function ZoneMatrix({ filters, refreshKey, onCellClick, activeCel
     return () => obs.disconnect()
   }, [])
 
-  if (loading) return <Shell isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen}><div className="flex items-center justify-center h-48 text-xs text-gray-500">Loading zone matrix...</div></Shell>
+  if (loading) return <Shell isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen}><div className="animate-pulse p-4 space-y-3"><div className="h-4 w-32 bg-gray-800 rounded" /><div className="grid grid-cols-4 gap-2">{[...Array(16)].map((_, i) => <div key={i} className="h-8 bg-gray-800 rounded" />)}</div></div></Shell>
   if (error) return <Shell isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen}><div className="flex items-center justify-center h-48 text-xs text-red-400">{error}</div></Shell>
   if (!data?.cells?.length) return <Shell isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen}><div className="flex items-center justify-center h-48 text-xs text-gray-500">No zone traffic data for this time range</div></Shell>
 
@@ -230,11 +230,11 @@ export default function ZoneMatrix({ filters, refreshKey, onCellClick, activeCel
           >
             <div className="font-medium text-gray-100 mb-1">{tooltip.inLabel} → {tooltip.outLabel}</div>
             <div className="tabular-nums">{formatNumber(tooltip.cell.total)} total events</div>
-            <div className="flex gap-3 tabular-nums">
-              <span className="text-emerald-400">{formatNumber(tooltip.cell.allow_count)} allow</span>
-              <span className="text-red-400">{formatNumber(tooltip.cell.block_count)} block</span>
+            <div className="flex items-center gap-1.5 mt-1 tabular-nums">
+              <span className={`px-1 py-0.5 rounded font-medium border ${ACTION_STYLES.allow}`}>{formatNumber(tooltip.cell.allow_count)}</span>
+              <span className={`px-1 py-0.5 rounded font-medium border ${ACTION_STYLES.block}`}>{formatNumber(tooltip.cell.block_count)}</span>
             </div>
-            <div className="text-gray-400 tabular-nums">{formatNumber(tooltip.cell.unique_pairs)} unique pairs</div>
+            <div className="text-gray-400 tabular-nums mt-1">{formatNumber(tooltip.cell.unique_pairs)} unique pairs</div>
           </div>
         )}
       </div>

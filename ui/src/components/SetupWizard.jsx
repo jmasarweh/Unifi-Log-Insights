@@ -361,7 +361,22 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
       <div className={embedded ? '' : 'flex-1 overflow-auto'}>
         <div className={embedded ? '' : 'max-w-6xl mx-auto py-8 px-6'}>
           {(loading || !settingsLoaded) ? (
-            <div className="text-center py-12 text-gray-400 text-sm">Loading current configuration...</div>
+            <div className="animate-pulse space-y-6 py-12 max-w-xl mx-auto">
+              <div className="h-5 w-48 bg-gray-800 rounded" />
+              <div className="space-y-3">
+                <div className="h-3 bg-gray-800 rounded w-full" />
+                <div className="h-3 bg-gray-800 rounded w-3/4" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-4 w-24 bg-gray-800 rounded" />
+                <div className="h-10 bg-gray-800 rounded" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-4 w-32 bg-gray-800 rounded" />
+                <div className="h-10 bg-gray-800 rounded" />
+              </div>
+              <div className="h-10 w-32 bg-gray-800 rounded" />
+            </div>
           ) : (
             <>
               {/* Step 1: UniFi Connection */}

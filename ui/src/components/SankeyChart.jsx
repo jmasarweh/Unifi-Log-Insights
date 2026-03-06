@@ -468,7 +468,15 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
       {/* Chart — scrollable vertically and horizontally (originally vertical-only; horizontal added for mobile) */}
       <div className="relative p-3 overflow-y-auto overflow-x-auto min-h-0 flex-1" ref={containerRef}>
         {loading ? (
-          <div className="flex items-center justify-center h-48 text-xs text-gray-500">Loading flow data...</div>
+          <div className="animate-pulse space-y-3 p-4">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <div className="h-4 bg-gray-800 rounded flex-1" />
+                <div className="h-4 bg-gray-800 rounded w-24" />
+                <div className="h-4 bg-gray-800 rounded flex-1" />
+              </div>
+            ))}
+          </div>
         ) : error ? (
           <div className="flex items-center justify-center h-48 text-xs text-red-400">{error}</div>
         ) : !layout ? (

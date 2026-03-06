@@ -499,25 +499,6 @@ export default function ThreatMap({ maxFilterDays, flyTo, onFlyToDone }) {
 
         {/* Filter content — always visible on desktop, collapsible on mobile */}
         <div id="threat-filters-panel" className={`${filtersExpanded ? 'flex' : 'hidden'} lg:flex items-center gap-3 px-4 py-2.5 flex-wrap`}>
-          {/* Time range */}
-          <div className="flex items-center gap-0.5">
-            {visibleRanges.map(tr => (
-              <button
-                type="button"
-                key={tr}
-                onClick={() => setTimeRange(tr)}
-                aria-pressed={timeRange === tr}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-                  timeRange === tr ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
-                }`}
-              >
-                {tr}
-              </button>
-            ))}
-          </div>
-
-          <span className="text-gray-700">|</span>
-
           {/* Mode toggle */}
           <div className="flex items-center gap-0.5">
             {MODES.map(m => (
@@ -550,6 +531,25 @@ export default function ThreatMap({ maxFilterDays, flyTo, onFlyToDone }) {
                 }`}
               >
                 {v.label}
+              </button>
+            ))}
+          </div>
+
+          <span className="text-gray-700">|</span>
+
+          {/* Time range */}
+          <div className="flex items-center gap-0.5">
+            {visibleRanges.map(tr => (
+              <button
+                type="button"
+                key={tr}
+                onClick={() => setTimeRange(tr)}
+                aria-pressed={timeRange === tr}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                  timeRange === tr ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                {tr}
               </button>
             ))}
           </div>

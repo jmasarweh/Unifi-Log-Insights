@@ -9,7 +9,7 @@ import FlowViewSkeleton from './components/FlowViewSkeleton'
 const Dashboard = React.lazy(() => import('./components/Dashboard'))
 const ThreatMap = React.lazy(() => import('./components/ThreatMap'))
 const FlowView = React.lazy(() => import('./components/FlowView'))
-import { fetchHealth, fetchConfig, fetchLatestRelease, dismissUpgradeModal, dismissVpnToast, fetchInterfaces, updateUiSettings } from './api'
+import { fetchHealth, fetchConfig, fetchLatestRelease, dismissUpgradeModal, dismissVpnToast, fetchInterfaces, fetchUiSettings, updateUiSettings } from './api'
 import { loadInterfaceLabels } from './utils'
 import { isVpnInterface } from './vpnUtils'
 
@@ -83,6 +83,17 @@ export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('ui_theme') || 'dark')
   const [showStatusTooltip, setShowStatusTooltip] = useState(false)
   const statusRef = useRef(null)
+
+  // Hydrate theme from API when localStorage is empty (e.g., cleared cache, new browser)
+  useEffect(() => {
+    if (localStorage.getItem('ui_theme')) return
+    fetchUiSettings().then(data => {
+      if (data.ui_theme && data.ui_theme !== theme) {
+        setTheme(data.ui_theme)
+        localStorage.setItem('ui_theme', data.ui_theme)
+      }
+    }).catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)

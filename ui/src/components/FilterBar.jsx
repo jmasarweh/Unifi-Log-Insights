@@ -109,13 +109,17 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
       .catch(err => { console.error('Failed to load interfaces:', err); setInterfaces([]) })
   }, [prefetchedInterfaces])
 
-  // Debounce text inputs
+  // Debounce text inputs (skip initial mount to avoid a redundant fetch)
+  const mountedRef = useRef(false)
+
   useEffect(() => {
+    if (!mountedRef.current) return
     const t = setTimeout(() => wrappedOnChange({ ...filtersRef.current, ip: ipSearch || null }), 400)
     return () => clearTimeout(t)
   }, [ipSearch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!mountedRef.current) return
     // Normalize: UI displays "] " (space after bracket) for readability but DB stores "]" (no space)
     const normalized = ruleSearch ? ruleSearch.replace(/\]\s+/g, ']') : null
     const t = setTimeout(() => wrappedOnChange({ ...filtersRef.current, rule_name: normalized }), 400)
@@ -123,21 +127,25 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
   }, [ruleSearch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!mountedRef.current) return
     const t = setTimeout(() => wrappedOnChange({ ...filtersRef.current, search: textSearch || null }), 400)
     return () => clearTimeout(t)
   }, [textSearch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!mountedRef.current) return
     const t = setTimeout(() => wrappedOnChange({ ...filtersRef.current, country: countrySearch || null }), 400)
     return () => clearTimeout(t)
   }, [countrySearch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!mountedRef.current) return
     const t = setTimeout(() => wrappedOnChange({ ...filtersRef.current, asn: asnSearch || null }), 400)
     return () => clearTimeout(t)
   }, [asnSearch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!mountedRef.current) return
     const t = setTimeout(() => {
       wrappedOnChange({ ...filtersRef.current, dst_port: parsePort(dstPortSearch) })
     }, 400)
@@ -145,11 +153,15 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
   }, [dstPortSearch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!mountedRef.current) return
     const t = setTimeout(() => {
       wrappedOnChange({ ...filtersRef.current, src_port: parsePort(srcPortSearch) })
     }, 400)
     return () => clearTimeout(t)
   }, [srcPortSearch]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mark mounted AFTER all debounce effects so the guard skips the initial run
+  useEffect(() => { mountedRef.current = true }, [])
 
   // Auto-correct selected range if it exceeds visible ranges (respects ceiling)
   // Skip when in custom date mode (time_range is null, time_from/time_to are set)

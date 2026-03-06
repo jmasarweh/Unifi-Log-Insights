@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { fetchHostDetail } from '../api'
-import { formatNumber, formatServiceName } from '../utils'
+import { formatNumber, formatServiceName, ACTION_STYLES } from '../utils'
 
 export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
   const [data, setData] = useState(null)
@@ -68,18 +68,18 @@ export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
       {loading || error || !data ? null : (
         <div className="overflow-y-auto min-h-0 flex-1">
           {/* Summary stats */}
-          <div className="flex items-center gap-4 px-4 py-2 border-b border-gray-800/50 text-xs text-gray-400 shrink-0">
-            <span>{formatNumber(data.summary?.total_events ?? 0)} Events</span>
-            <span className="text-emerald-400">{formatNumber(data.summary?.allow_count ?? 0)} Allow</span>
-            <span className="text-red-400">{formatNumber(data.summary?.block_count ?? 0)} Block</span>
-            <span>{formatNumber(data.summary?.unique_peers ?? 0)} Peers</span>
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800/50 text-xs shrink-0">
+            <span className={`px-1.5 py-0.5 rounded font-medium border ${ACTION_STYLES.allow}`}>{formatNumber(data.summary?.allow_count ?? 0)} Allow</span>
+            <span className={`px-1.5 py-0.5 rounded font-medium border ${ACTION_STYLES.block}`}>{formatNumber(data.summary?.block_count ?? 0)} Block</span>
+            <span className="text-gray-400">{formatNumber(data.summary?.total_events ?? 0)} Events</span>
+            <span className="text-gray-400">{formatNumber(data.summary?.unique_peers ?? 0)} Peers</span>
           </div>
 
           {/* Peers — side by side */}
           <div className="grid grid-cols-2">
             {/* Outbound peers */}
             <div className="border-r border-gray-800/50">
-              <div className="px-4 py-2 text-xs text-gray-500 uppercase tracking-wider font-medium">Outbound Peers</div>
+              <div className="px-4 py-2 text-xs text-gray-500 uppercase tracking-wider font-bold">Outbound Peers</div>
               {(data.peers_as_source ?? []).length === 0 ? (
                 <div className="px-4 py-2 text-xs text-gray-600">No outbound traffic</div>
               ) : (
@@ -109,7 +109,7 @@ export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
             </div>
             {/* Inbound peers */}
             <div>
-              <div className="px-4 py-2 text-xs text-gray-500 uppercase tracking-wider font-medium">Inbound Peers</div>
+              <div className="px-4 py-2 text-xs text-gray-500 uppercase tracking-wider font-bold">Inbound Peers</div>
               {(data.peers_as_destination ?? []).length === 0 ? (
                 <div className="px-4 py-2 text-xs text-gray-600">No inbound traffic</div>
               ) : (
@@ -142,14 +142,14 @@ export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
           {/* Top Ports */}
           {data.ports?.length > 0 && (
             <div className="border-t border-gray-800/50">
-              <div className="px-4 py-2 text-xs text-gray-500 uppercase tracking-wider font-medium">Top Ports</div>
+              <div className="px-4 py-2 text-xs text-gray-500 uppercase tracking-wider font-bold">Top Ports</div>
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-xs text-gray-500 uppercase tracking-wider">
-                    <th className="text-left px-4 py-1 font-medium">Port</th>
-                    <th className="text-left px-2 py-1 font-medium">Service</th>
-                    <th className="text-left px-2 py-1 font-medium">Proto</th>
-                    <th className="text-right px-4 py-1 font-medium">Count</th>
+                    <th className="text-left px-4 py-1 font-bold">Port</th>
+                    <th className="text-left px-2 py-1 font-bold">Service</th>
+                    <th className="text-left px-2 py-1 font-bold">Proto</th>
+                    <th className="text-right px-4 py-1 font-bold">Count</th>
                   </tr>
                 </thead>
                 <tbody>

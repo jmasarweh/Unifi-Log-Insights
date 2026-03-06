@@ -406,7 +406,7 @@ export default function FlowView({ maxFilterDays }) {
             />
           )}
           {activePanel === 'zone-matrix' && (
-            <Suspense fallback={<div className="border border-gray-800 rounded-lg p-4 h-64 flex items-center justify-center text-xs text-gray-500">Loading...</div>}>
+            <Suspense fallback={<div className="border border-gray-800 rounded-lg p-4 h-64 animate-pulse"><div className="h-4 w-32 bg-gray-800 rounded mb-3" /><div className="grid grid-cols-4 gap-2">{[...Array(12)].map((_, i) => <div key={i} className="h-8 bg-gray-800 rounded" />)}</div></div>}>
               <ZoneMatrix
                 filters={filters}
                 refreshKey={refreshKey}

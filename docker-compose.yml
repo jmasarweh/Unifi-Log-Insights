@@ -1,7 +1,6 @@
 services:
   unifi-log-insight:
-    #image: ghcr.io/jmasarweh/unifi-log-insight:3.1.0-beta.2
-    build: .
+    image: ghcr.io/jmasarweh/unifi-log-insight:latest
     pull_policy: always
     container_name: log-insight-local
     restart: unless-stopped

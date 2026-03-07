@@ -3,8 +3,32 @@ name: Tests
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.doc/**'
+      - 'assets/**'
+      - 'images/**'
+      - '*.png'
+      - '*.jpg'
+      - '*.gif'
+      - '*.svg'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.doc/**'
+      - 'assets/**'
+      - 'images/**'
+      - '*.png'
+      - '*.jpg'
+      - '*.gif'
+      - '*.svg'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
 
 jobs:
   backend:

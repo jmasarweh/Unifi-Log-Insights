@@ -1,0 +1,136 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please fill in as much detail as possible — it helps us diagnose the issue faster.
+
+  - type: input
+    id: version
+    attributes:
+      label: App Version
+      description: Shown in the bottom-left of the UI, or via `curl http://localhost:8090/api/health | jq .version`
+      placeholder: "e.g. 3.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: gateway
+    attributes:
+      label: Gateway Model
+      description: Your UniFi gateway hardware
+      options:
+        - UDM Pro
+        - UDM Pro Max
+        - UDM SE
+        - UDM (base)
+        - UXG Pro
+        - UXG Lite
+        - UXG Max
+        - USG 3P
+        - USG Pro 4
+        - Other (specify in description)
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Gateway Firmware
+      description: "Found in UniFi Settings > System or Devices tab"
+      placeholder: "e.g. 4.0.26"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: setup_path
+    attributes:
+      label: Setup Path
+      description: How did you connect to your controller?
+      options:
+        - UniFi OS API Key
+        - Self-Hosted (username/password)
+        - Log Detection (no API)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: db_mode
+    attributes:
+      label: Database Mode
+      description: Are you using the built-in database or an external one?
+      options:
+        - Embedded (default)
+        - External PostgreSQL
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: What happened? What did you expect to happen?
+      placeholder: "A clear description of the bug..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, add screenshots to help explain the problem.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug Logs
+      description: |
+        Set `LOG_LEVEL=DEBUG` in your `.env` or `docker-compose.yml`, restart the container, reproduce the issue, then paste relevant logs.
+        ```
+        docker logs unifi-log-insight 2>&1 | tail -100
+        ```
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: raw_syslog
+    attributes:
+      label: Raw Syslog Sample (if log parsing issue)
+      description: |
+        If logs are missing or misclassified, paste a few raw syslog lines:
+        ```
+        docker logs unifi-log-insight 2>&1 | grep "IN=.*OUT=" | head -10
+        ```
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: health
+    attributes:
+      label: Health Endpoint Output
+      description: |
+        Paste the output of:
+        ```
+        curl -s http://localhost:8090/api/health | jq .
+        ```
+      render: json
+    validations:
+      required: false

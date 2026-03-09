@@ -8,22 +8,22 @@ Single Docker container. No external dependencies. Zero data collection.
 
 - ✨ [Features](#-features)
 - 📋 [Prerequisites](#-prerequisites)
-- 🚀 [Quick Start](#-quick-start)
-- 🏗️ [Architecture](#️-architecture)
-- ⚙️ [Configuration Reference](#️-configuration-reference)
-- 🗺️ [MaxMind Auto-Update](#️-maxmind-auto-update)
-- 🛡️ [AbuseIPDB Integration](#️-abuseipdb-integration)
-- 🖥️ [UI Guide](#️-ui-guide)
-- 🤖 [AI Agent Integration (MCP)](#-ai-agent-integration-mcp)
-- 📡 [API Endpoints](#-api-endpoints)
-- 🔤 [DNS Logging](#-dns-logging)
-- 🖧  [Unraid Setup](#-unraid-setup)
-- 🧹 [Database Maintenance](#-database-maintenance)
-- 🗄️ [External Database Setup](#️-external-database-setup)
-- 🔧 [Troubleshooting](#-troubleshooting)
-- ⚖️ [Disclaimer](#-disclaimer)
-- 📄 [License](#-license-1)
-- 📸 [App Screenshots](#-app-screenshots)
+- 🚀 [Quick Start](#quick-start)
+- 🏗️ [Architecture](#architecture)
+- ⚙️ [Configuration Reference](#configuration-reference)
+- 🗺️ [MaxMind Auto-Update](#maxmind-auto-update)
+- 🛡️ [AbuseIPDB Integration](#abuseipdb-integration)
+- 🖥️ [UI Guide](#ui-guide)
+- 🤖 [AI Agent Integration (MCP)](#ai-agent-integration-mcp)
+- 📡 [API Endpoints](#api-endpoints)
+- 🔤 [DNS Logging](#dns-logging)
+- 🖧  [Unraid Setup](#unraid-setup)
+- 🧹 [Database Maintenance](#database-maintenance)
+- 🗄️ [External Database Setup](#external-database-setup)
+- 🔧 [Troubleshooting](#troubleshooting)
+- ⚖️ [Disclaimer](#disclaimer)
+- 📄 [License](#license)
+- 📸 [App Screenshots](#app-screenshots)
 
 ## ✨ Features
 
@@ -41,21 +41,21 @@ Single Docker container. No external dependencies. Zero data collection.
 | **VPN Detection** | Auto-detects VPN interfaces (WireGuard, OpenVPN, Teleport, Site Magic) with badge assignment, labels, and CIDRs |
 | **UniFi Integration** | Network discovery, device name resolution, and firewall syslog management via **UniFi OS** (API key) or **self-hosted controllers** (username/password) |
 | **Firewall Syslog Manager** | Zone matrix with bulk toggle — enable syslog on firewall rules without leaving the app (UniFi OS) |
-| **AI Agent Integration** *(MCP)* | Connect Claude Desktop, Claude Code, Gemini CLI (or any http mcp client) via the [Model Context Protocol (MCP)](#-ai-agent-integration-mcp) to query your network data & setup through natural conversation |
+| **AI Agent Integration** *(MCP)* | Connect Claude Desktop, Claude Code, Gemini CLI (or any http mcp client) via the [Model Context Protocol (MCP)](#ai-agent-integration-mcp) to query your network data & setup through natural conversation |
 | **Device Names** | Friendly names from UniFi clients/devices with historical backfill |
 | **Theming & Preferences** | Dark/light theme, country display format, IP subline (show ASN beneath IPs) |
 | **Interface Labels** | Color-coded labels for traffic flow, applied retroactively to all logs |
 | **CSV Export** | Download filtered results up to 100K rows |
 | **Retention** | Configurable per log type (60-day default, 10-day DNS). Adjustable via Settings or env vars |
 | **Backup & Restore** | Export/import all settings as JSON |
-| **DNS Ready** | Full DNS query parsing ([requires configuration](#-dns-logging)) |
+| **DNS Ready** | Full DNS query parsing ([requires configuration](#dns-logging)) |
 | **Mobile Responsive** | Collapsible filters, full-width table on small screens |
 | **Setup Wizard** | Two paths: **UniFi API** (auto-detects WAN, VLANs, topology) or **Log Detection** (discovers interfaces from live traffic) |
 
 ---
 
 > [!TIP]
-> **Need help fast?** Jump to [Troubleshooting](#-troubleshooting).
+> **Need help fast?** Jump to [Troubleshooting](#troubleshooting).
 
 ## 📋 Prerequisites
 
@@ -74,9 +74,10 @@ These are baseline estimates for a small home network. Higher log volume or long
 
 
 > [!NOTE]
-> 🖧 **Running Unraid?** Skip to the [Unraid Setup](#-unraid-setup) section for a no-terminal install guide.
+> 🖧 **Running Unraid?** Skip to the [Unraid Setup](#unraid-setup) section for a no-terminal install guide.
 
 ---
+<a id="quick-start"></a>
 <details close>
 <summary><span style="font-size:1.4em;font-weight:bold">🚀 Quick Start</span></summary>
 
@@ -236,6 +237,7 @@ You can reconfigure at any time via the **Settings gear** in the top-right corne
 
 </details>
 
+<a id="architecture"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">🏗️ Architecture</span></summary>
 
@@ -245,7 +247,7 @@ Everything runs inside a single Docker container, managed by supervisord:
 
 ### Current architecture:
 
-- PostgreSQL 16 process for `logs`, `ip_threats`, and config state. PostgreSQL can be embedded (default) or [external](#️-external-database-setup).
+- PostgreSQL 16 process for `logs`, `ip_threats`, and config state. PostgreSQL can be embedded (default) or [external](#external-database-setup).
 - Receiver process (`main.py`) listens on UDP `514`, parses logs, enriches (GeoIP, ASN, AbuseIPDB, rDNS, UniFi device names), and batch-inserts into Postgres. It also runs background threads for stats + WAN/gateway detection, retention cleanup, AbuseIPDB blacklist pulls, threat backfill, and UniFi client/device polling.
 - API process (`api.py`) serves REST endpoints and the React SPA from `/app/static` on port `8000` (mapped to `8090` by docker-compose).
 - Cron process runs `geoip-update.sh` (Wed/Sat 07:00 UTC when MaxMind credentials are set), which refreshes GeoIP databases and signals the receiver to reload them.
@@ -262,6 +264,7 @@ Everything runs inside a single Docker container, managed by supervisord:
 
 </details>
 
+<a id="configuration-reference"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">⚙️ Configuration Reference</span></summary>
 
@@ -311,6 +314,7 @@ Retention is configurable via the **Settings > Data & Backups** slider, or via `
 
 </details>
 
+<a id="maxmind-auto-update"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">🗺️ MaxMind Auto-Update</span></summary>
 
@@ -332,6 +336,7 @@ docker exec unifi-log-insight cat /var/log/geoip-update.log
 
 </details>
 
+<a id="abuseipdb-integration"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">🛡️ AbuseIPDB Integration</span></summary>
 
@@ -367,6 +372,7 @@ The system uses AbuseIPDB response headers (`X-RateLimit-Remaining`, `Retry-Afte
 
 </details>
 
+<a id="ui-guide"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">🖥️ UI Guide</span></summary>
 
@@ -398,7 +404,7 @@ Access settings via the **gear icon** in the top-right corner. Five sections:
 - **Firewall** - Zone matrix with bulk syslog toggle (UniFi OS only)
 - **Data & Backups** - Retention sliders, manual cleanup, config export/import
 - **User Interface** - Theme (dark/light), country display format (flag + name, flag only, name only), IP address subline (show ASN beneath IPs in log table)
-- **MCP** *(Beta)* - Enable/disable the MCP server, manage tokens and scopes, view AI activity audit log, and get client setup instructions (see [AI Agent Integration](#-ai-agent-integration-mcp))
+- **MCP** *(Beta)* - Enable/disable the MCP server, manage tokens and scopes, view AI activity audit log, and get client setup instructions (see [AI Agent Integration](#ai-agent-integration-mcp))
 
 ### Threat Map
 
@@ -424,6 +430,7 @@ Aggregated views with configurable time range (1h to 365d, based on retention se
 
 </details>
 
+<a id="ai-agent-integration-mcp"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">🤖 AI Agent Integration (MCP)</span></summary>
 
@@ -532,6 +539,7 @@ All tool calls are logged with the token ID, tool name, parameters, and success/
 
 </details>
 
+<a id="api-endpoints"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">📡 API Endpoints</span></summary>
 
@@ -590,6 +598,7 @@ All tool calls are logged with the token ID, tool name, parameters, and success/
 
 </details>
 
+<a id="dns-logging"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">🔤 DNS Logging</span></summary>
 
@@ -606,6 +615,7 @@ The dashboard includes a "Top DNS Queries" panel and the filter bar has a DNS ty
 
 </details>
 
+<a id="unraid-setup"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">🖧 Unraid Setup</span></summary>
 
@@ -647,6 +657,7 @@ Install directly from Unraid's Docker UI - no terminal needed.
 
 </details>
 
+<a id="database-maintenance"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">🧹 Database Maintenance</span></summary>
 
@@ -696,6 +707,7 @@ If disk usage is still high, check:
 
 </details>
 
+<a id="external-database-setup"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">🗄️ External Database Setup</span></summary>
 
@@ -760,6 +772,7 @@ See `docker-compose.external-db.yml` for a complete example.
 
 </details>
 
+<a id="troubleshooting"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">🔧 Troubleshooting</span></summary>
 
@@ -799,12 +812,13 @@ See `docker-compose.external-db.yml` for a complete example.
 |-------|----------|
 | "Connection refused" | Check `DB_HOST`, `DB_PORT`, firewall rules, Docker network connectivity |
 | "Password authentication failed" | Verify `DB_PASSWORD` matches the actual database user password |
-| "Permission denied for table" | Run the GRANT statements from the [External Database Setup](#️-external-database-setup) section |
+| "Permission denied for table" | Run the GRANT statements from the [External Database Setup](#external-database-setup) section |
 | "SSL required" | Set `DB_SSLMODE=require` |
 | Container reports unhealthy | Check `docker logs` for database connection errors |
 
 </details>
 
+<a id="disclaimer"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">⚖️ Disclaimer</span></summary>
 
@@ -812,6 +826,7 @@ This project is not affiliated with, endorsed by, or associated with Ubiquiti In
 
 </details>
 
+<a id="license"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">📄 License</span></summary>
 
@@ -819,6 +834,7 @@ MIT
 
 </details>
 
+<a id="app-screenshots"></a>
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">📸 App Screenshots</span></summary>
 

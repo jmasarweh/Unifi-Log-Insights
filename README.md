@@ -830,7 +830,15 @@ This project is not affiliated with, endorsed by, or associated with Ubiquiti In
 <details>
 <summary><span style="font-size:1.4em;font-weight:bold">📄 License</span></summary>
 
-MIT
+Licensed under the [Business Source License 1.1](LICENSE) (BSL 1.1).
+
+**You may** freely use, modify, and self-host UniFi Log Insight for non-commercial and internal business purposes.
+
+**You may not** offer the Licensed Work to third parties on a hosted or embedded basis to compete with the Licensor's paid offerings without a commercial license.
+
+Each version converts to **Apache License 2.0** four years after its release date.
+
+Exceptions to the BSL terms may be granted on a case-by-case basis — contact the Licensor for inquiries.
 
 </details>
 

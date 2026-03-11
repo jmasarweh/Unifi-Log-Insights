@@ -82,6 +82,7 @@ body {
 
 .server-row input:focus {
   border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.25);
 }
 
 .port-sep {
@@ -173,6 +174,11 @@ body {
 .btn-reset:hover {
   border-color: #f87171;
   color: #f87171;
+}
+
+.btn-reset:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
 }
 
 /* Link buttons */
@@ -499,4 +505,10 @@ body[data-theme="light"] .debug-details {
 body[data-theme="light"] .debug-out {
   background: #eef2f7;
   color: #111827;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view {
+    animation: none;
+  }
 }

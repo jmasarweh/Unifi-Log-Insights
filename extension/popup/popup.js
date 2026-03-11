@@ -429,7 +429,9 @@ saveControllerBtn.addEventListener('click', () => {
     popupWarn('save controller permission request rejected/aborted', { origin, url, error: err?.message });
     try {
       await chrome.runtime.sendMessage({ type: 'SET_CONTROLLER_URL', url });
-    } catch { /* popup closing */ }
+    } catch (innerErr) {
+      popupWarn('SET_CONTROLLER_URL on popup close:', innerErr?.message);
+    }
 
     saveControllerBtn.disabled = false;
     saveControllerBtn.textContent = 'Save';
@@ -472,7 +474,9 @@ reloadBtn.addEventListener('click', async () => {
     for (const tab of tabs) {
       chrome.tabs.reload(tab.id);
     }
-  } catch { /* ignore */ }
+  } catch (err) {
+    popupWarn('reload controller tabs failed:', err?.message);
+  }
 });
 
 // -- Reset --
@@ -486,7 +490,9 @@ disconnectBtn.addEventListener('click', async () => {
     if (dynamicOrigins.length > 0) {
       await chrome.permissions.remove({ origins: dynamicOrigins });
     }
-  } catch { /* ignore */ }
+  } catch (err) {
+    popupWarn('disconnect permission cleanup failed:', err?.message);
+  }
 
   await chrome.storage.sync.set({ logInsightUrl: '', controllerUrl: '', configured: false });
   await chrome.storage.local.remove(['pendingOrigin', 'health']);

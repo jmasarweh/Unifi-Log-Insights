@@ -75,12 +75,12 @@ window.addEventListener('uli-ready', async function () {
   // Covers pushState, replaceState, popstate, and hashchange.
   const origPushState = history.pushState;
   const origReplaceState = history.replaceState;
-  history.pushState = function () {
-    origPushState.apply(this, arguments);
+  history.pushState = function (...args) {
+    origPushState.apply(this, args);
     onPossibleRouteChange();
   };
-  history.replaceState = function () {
-    origReplaceState.apply(this, arguments);
+  history.replaceState = function (...args) {
+    origReplaceState.apply(this, args);
     onPossibleRouteChange();
   };
   window.addEventListener('popstate', onPossibleRouteChange);
@@ -104,6 +104,8 @@ window.addEventListener('uli-ready', async function () {
     history.replaceState = origReplaceState;
     window.removeEventListener('popstate', onPossibleRouteChange);
     window.removeEventListener('hashchange', onPossibleRouteChange);
+    document.removeEventListener('keydown', onEscKey);
+    window.removeEventListener('uli-navigate', onUliNavigate);
   };
   window.addEventListener('pagehide', teardown, { once: true });
 
@@ -111,12 +113,13 @@ window.addEventListener('uli-ready', async function () {
     return new Promise((resolve) => {
       const found = findTabContainer();
       if (found) { resolve(found); return; }
+      let settled = false;
       const obs = new MutationObserver(() => {
         const el = findTabContainer();
-        if (el) { obs.disconnect(); resolve(el); }
+        if (el && !settled) { settled = true; clearTimeout(timer); obs.disconnect(); resolve(el); }
       });
       obs.observe(document.documentElement, { childList: true, subtree: true });
-      setTimeout(() => { obs.disconnect(); resolve(null); }, timeout);
+      const timer = setTimeout(() => { if (!settled) { settled = true; obs.disconnect(); resolve(null); } }, timeout);
     });
   }
 
@@ -272,8 +275,9 @@ window.addEventListener('uli-ready', async function () {
       capturedActiveTab = findActiveUniFiTab(navRoot);
     }
 
-    // Use fixed overlay so we never touch <main> or hold stale references
-    if (!iframeContainer) {
+    // Use fixed overlay so we never touch <main> or hold stale references.
+    // Re-create if the SPA removed it from the DOM during app navigation.
+    if (!iframeContainer || !iframeContainer.isConnected) {
       iframeContainer = createIframeContainer();
       document.body.appendChild(iframeContainer);
     }
@@ -436,13 +440,14 @@ window.addEventListener('uli-ready', async function () {
   }
 
   // ESC to deactivate (ignore when focus is on interactive elements)
-  document.addEventListener('keydown', (e) => {
+  const onEscKey = (e) => {
     if (e.key === 'Escape' && isActive) {
       const el = e.target || document.activeElement;
       if (el && el.matches('input, textarea, select, button, [contenteditable="true"]')) return;
       deactivateEmbed();
     }
-  });
+  };
+  document.addEventListener('keydown', onEscKey);
 
   // Deactivate when user clicks another UniFi tab.
   // Listeners are attached directly to each tab <a> in attachDeactivationListeners()
@@ -451,7 +456,7 @@ window.addEventListener('uli-ready', async function () {
   // browser/extension configurations.
 
   // Listen for navigation requests from flow-enricher (pill/dot clicks)
-  window.addEventListener('uli-navigate', (e) => {
+  const onUliNavigate = (e) => {
     const { ip } = e.detail || {};
     if (!ip) return;
 
@@ -462,5 +467,6 @@ window.addEventListener('uli-ready', async function () {
     if (iframe && iframe.contentWindow) {
       iframe.contentWindow.postMessage({ type: 'uli-navigate', hash: '#logs?ip=' + encodeURIComponent(ip) }, logInsightOrigin);
     }
-  });
+  };
+  window.addEventListener('uli-navigate', onUliNavigate);
 });

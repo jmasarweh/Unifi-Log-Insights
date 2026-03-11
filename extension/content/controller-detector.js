@@ -39,7 +39,6 @@
     if (resp && resp.ok) baseUrl = resp.url || '';
   } catch (e) {
     console.debug('GET_BASE_URL failed:', e);
-    return;
   }
 
   // Store config globally for the other content scripts
@@ -54,12 +53,13 @@ function waitForElement(selector, timeout) {
     const el = document.querySelector(selector);
     if (el) { resolve(el); return; }
 
+    let settled = false;
     const observer = new MutationObserver(() => {
       const found = document.querySelector(selector);
-      if (found) { observer.disconnect(); resolve(found); }
+      if (found && !settled) { settled = true; observer.disconnect(); resolve(found); }
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
 
-    setTimeout(() => { observer.disconnect(); resolve(null); }, timeout);
+    setTimeout(() => { if (!settled) { settled = true; observer.disconnect(); resolve(null); } }, timeout);
   });
 }

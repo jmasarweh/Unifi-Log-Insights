@@ -14,11 +14,18 @@ function swLog(...args) {
 
 function swWarn(...args) {
   console.warn(SW_LOG_PREFIX, ...args);
+  swWarnCount++;
 }
 
 function swError(...args) {
   console.error(SW_LOG_PREFIX, ...args);
+  swErrorCount++;
 }
+
+// Diagnostic counter — exposed via DEBUG message for user bug reports
+let swErrorCount = 0;
+let swWarnCount = 0;
+const swStartedAt = Date.now();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,7 +62,10 @@ chrome.runtime.onStartup.addListener(() => {
  * 2. If found, fetch UniFi settings to get controller URL
  * 3. Register content scripts for the controller origin
  */
+let discoverRunning = false;
 async function discover() {
+  if (discoverRunning) { swLog('discover already running — skipped'); return; }
+  discoverRunning = true;
   swLog('discover start');
   try {
     const settings = await getSettings();
@@ -84,6 +94,8 @@ async function discover() {
   } catch (err) {
     swError('Discovery failed:', err);
     setBadge('!', '#f87171');
+  } finally {
+    discoverRunning = false;
   }
 }
 
@@ -146,7 +158,9 @@ async function registerContentScripts(controllerUrl, options = {}) {
   // Unregister any existing scripts first
   try {
     await chrome.scripting.unregisterContentScripts({ ids: ['uli-controller'] });
-  } catch { /* ignore if not registered */ }
+  } catch (err) {
+    swWarn('unregisterContentScripts (pre-register cleanup):', err?.message);
+  }
 
   // Register content scripts for future page loads.
   const scripts = [
@@ -338,9 +352,14 @@ async function handleMessage(msg) {
       } catch (e) {
         permissions = { error: e.message };
       }
+      const manifest = chrome.runtime.getManifest();
       return {
         ok: true,
         data: {
+          extensionVersion: manifest.version,
+          swUptime: Math.round((Date.now() - swStartedAt) / 1000) + 's',
+          swErrors: swErrorCount,
+          swWarnings: swWarnCount,
           settings,
           baseUrl: getBaseUrl(),
           pendingOrigin: pending.pendingOrigin || null,
@@ -355,7 +374,9 @@ async function handleMessage(msg) {
       setBadge('?', '#fbbf24');
       try {
         await chrome.scripting.unregisterContentScripts({ ids: ['uli-controller'] });
-      } catch { /* ignore if not registered */ }
+      } catch (err) {
+        swWarn('unregisterContentScripts (disconnect):', err?.message);
+      }
       return { ok: true };
     }
 

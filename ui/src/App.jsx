@@ -13,6 +13,8 @@ import { fetchHealth, fetchConfig, fetchLatestRelease, dismissUpgradeModal, dism
 import { loadInterfaceLabels } from './utils'
 import { isVpnInterface } from './vpnUtils'
 
+const IP_PATTERN = /^[\d.:a-fA-F]+$/
+
 const TABS = [
   { id: 'logs', label: 'Log Stream', shortLabel: 'Stream' },
   { id: 'flow-view', label: 'Flow View', shortLabel: 'Flow' },
@@ -133,7 +135,7 @@ export default function App() {
       if (e.data.type === 'uli-navigate' && e.data.hash) {
         const params = new URLSearchParams(e.data.hash.split('?')[1] || '')
         const ip = params.get('ip')
-        if (ip) {
+        if (ip && IP_PATTERN.test(ip)) {
           setLogsDrill({ src_ip: ip })
           setActiveTab('logs')
         }
@@ -294,10 +296,10 @@ export default function App() {
     if (!hash.includes('?')) return
     const params = new URLSearchParams(hash.split('?')[1])
     const ip = params.get('ip')
-    if (ip) {
+    if (ip && IP_PATTERN.test(ip)) {
       setLogsDrill({ src_ip: ip })
       setActiveTab('logs')
-      window.location.hash = '#logs'
+      history.replaceState(null, '', window.location.pathname + window.location.search + '#logs')
     }
   }, [])
 

@@ -22,6 +22,10 @@ for browser in chrome firefox; do
   done
 
   # Copy browser-specific manifest
+  if [ ! -f "$SCRIPT_DIR/manifests/$browser.json" ]; then
+    echo "ERROR: $SCRIPT_DIR/manifests/$browser.json not found" >&2
+    exit 1
+  fi
   cp "$SCRIPT_DIR/manifests/$browser.json" "$OUT/manifest.json"
 
   # Copy updates.json for Firefox (used for self-distribution auto-updates)

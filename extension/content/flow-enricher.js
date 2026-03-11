@@ -38,8 +38,8 @@ window.addEventListener('uli-ready', async function () {
     if (resp && resp.ok && resp.data) {
       threatColors = resp.data;
     }
-  } catch {
-    // Ignore; we'll use a safe fallback color set.
+  } catch (err) {
+    console.debug('[ULI][Flow] GET_THREAT_COLORS failed, using fallback:', err?.message);
   }
   if (!threatColors) {
     threatColors = {
@@ -59,11 +59,16 @@ window.addEventListener('uli-ready', async function () {
   let themeObserver = null;
   let observedWrapper = null;
   let lastKnownTheme = detectTheme();
+  let themeDebounce = null;
 
   function teardownObservers() {
     if (debounceTimer) {
       clearTimeout(debounceTimer);
       debounceTimer = null;
+    }
+    if (themeDebounce) {
+      clearTimeout(themeDebounce);
+      themeDebounce = null;
     }
     if (tableObserver) {
       tableObserver.disconnect();
@@ -88,7 +93,6 @@ window.addEventListener('uli-ready', async function () {
   // Watch for UniFi theme changes — strip badges and re-enrich so blacklist
   // colors and IP text colors update without requiring a page refresh.
   (function watchTheme() {
-    let themeDebounce = null;
     themeObserver = new MutationObserver(() => {
       if (themeDebounce) clearTimeout(themeDebounce);
       themeDebounce = setTimeout(() => {
@@ -252,7 +256,7 @@ window.addEventListener('uli-ready', async function () {
         if (!resp || !resp.ok || !resp.data) return;
         threatData = resp.data;
       } catch (e) {
-        // Extension context invalidated
+        console.warn('[ULI][Flow] BATCH_THREAT_LOOKUP failed (extension context may be invalidated):', e?.message);
         return;
       }
 
@@ -457,7 +461,14 @@ window.addEventListener('uli-ready', async function () {
     // IPv4 private ranges
     if (ip.startsWith('0.') || ip.startsWith('10.') || ip.startsWith('192.168.') ||
         ip.startsWith('127.') || ip.startsWith('169.254.') ||
-        ip.startsWith('100.64.')) return true;
+        ip.startsWith('192.0.2.') || ip.startsWith('198.51.100.') ||
+        ip.startsWith('203.0.113.')) return true;
+    // CGNAT 100.64.0.0/10 (100.64.* – 100.127.*)
+    const cgnat = ip.match(/^100\.(\d+)\./);
+    if (cgnat) {
+      const oct = parseInt(cgnat[1], 10);
+      if (oct >= 64 && oct <= 127) return true;
+    }
     const m = ip.match(/^172\.(\d+)\./);
     if (m) {
       const oct = parseInt(m[1], 10);
@@ -485,7 +496,7 @@ window.addEventListener('uli-ready', async function () {
 
   function escapeAttr(str) {
     return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-              .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              .replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   /** Detect UniFi theme from header background color. */

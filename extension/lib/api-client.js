@@ -27,7 +27,8 @@ export async function checkHealth(url) {
     const resp = await fetch(`${target}/api/health`, { signal: AbortSignal.timeout(5000) });
     if (!resp.ok) return null;
     return await resp.json();
-  } catch {
+  } catch (err) {
+    console.debug('[ULI][API] health check failed:', target, err?.message);
     return null;
   }
 }
@@ -41,7 +42,8 @@ export async function fetchUniFiSettings() {
     const resp = await fetch(`${baseUrl}/api/settings/unifi`, { signal: AbortSignal.timeout(5000) });
     if (!resp.ok) return null;
     return await resp.json();
-  } catch {
+  } catch (err) {
+    console.debug('[ULI][API] fetchUniFiSettings failed:', err?.message);
     return null;
   }
 }
@@ -81,15 +83,17 @@ export async function batchThreatLookup(ips) {
       const data = await resp.json();
       for (const [ip, threat] of Object.entries(data.results || {})) {
         results[ip] = threat;
-        // Evict oldest entries if cache is full
-        if (threatCache.size >= MAX_CACHE_SIZE) {
+        if (threatCache.has(ip)) {
+          threatCache.delete(ip);
+        } else if (threatCache.size >= MAX_CACHE_SIZE) {
+          // Evict oldest (FIFO) entry only when inserting a new key
           const oldest = threatCache.keys().next().value;
           threatCache.delete(oldest);
         }
         threatCache.set(ip, { data: threat, timestamp: Date.now() });
       }
-    } catch {
-      // Silently fail — badges just won't show for these IPs
+    } catch (err) {
+      console.warn('[ULI][API] batch threat lookup failed:', err?.message);
     }
   }
 

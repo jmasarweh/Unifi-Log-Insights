@@ -7,7 +7,7 @@ Single Docker container. No external dependencies. Zero data collection.
 > **For full documentation — installation, configuration, integrations, and more — visit [insightsplus.dev/docs](https://insightsplus.dev/docs).**
 
 <p align="center">
-<a href="#-features">Features</a> · <a href="#-prerequisites">Prerequisites</a> · <a href="#license">License</a> · <a href="#app-screenshots">Screenshots</a>
+<a href="#-features">Features</a> · <a href="#-prerequisites">Prerequisites</a> · <a href="#-app-screenshots">Screenshots</a>
 </p>
 
 ---
@@ -54,20 +54,6 @@ Single Docker container. No external dependencies. Zero data collection.
 - **Disk:** 10 GB free for the database volume (`pgdata`) at minimum
 
 These are baseline estimates for a small home network. Higher log volume or longer retention will require more disk.
-
-
-
-## 📄 License
-
-Licensed under the [Business Source License 1.1](LICENSE) (BSL 1.1).
-
-**You may** freely use, modify, and self-host UniFi Log Insight for non-commercial and internal business purposes.
-
-**You may not** offer the Licensed Work to third parties on a hosted or embedded basis to compete with the Licensor's paid offerings without a commercial license.
-
-Each version converts to **Apache License 2.0** four years after its release date.
-
-Exceptions to the BSL terms may be granted on a case-by-case basis — contact the Licensor for inquiries.
 
 ## 📸 App Screenshots
 
@@ -125,3 +111,15 @@ Exceptions to the BSL terms may be granted on a case-by-case basis — contact t
 
 ##### Threat Map
 <img alt="Map Mobile View" src="docs/screenshots/map-mobile-view.png" />
+
+## 📄 License
+
+Licensed under the [Business Source License 1.1](LICENSE) (BSL 1.1).
+
+**You may** freely use, modify, and self-host UniFi Log Insight for non-commercial and internal business purposes.
+
+**You may not** offer the Licensed Work to third parties on a hosted or embedded basis to compete with the Licensor's paid offerings without a commercial license.
+
+Each version converts to **Apache License 2.0** four years after its release date.
+
+Exceptions to the BSL terms may be granted on a case-by-case basis — contact the Licensor for inquiries.

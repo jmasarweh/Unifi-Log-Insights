@@ -1,4 +1,4 @@
-# UniFi Log Insight
+# UniFi Insights Plus (formerly Unifi Log Insight)
 
 Real-time log analysis for UniFi routers and gateways - captures syslog over UDP, parses firewall, DHCP, Wi-Fi, and system events, enriches them with GeoIP, ASN, threat intelligence, and reverse DNS, then serves everything through a live Dashboard.
 

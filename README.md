@@ -56,6 +56,8 @@ Single Docker container. No external dependencies. Zero data collection.
 
 These are baseline estimates for a small home network. Higher log volume or longer retention will require more disk.
 
+> **Docker log rotation** is enabled by default in `docker-compose.yml` (10 MB max, 5 files). If you use a custom compose file, add a [`logging:` section](https://docs.docker.com/compose/compose-file/compose-file-v3/#logging) to prevent unbounded container log growth.
+
 ## 📸 App Screenshots
 
 #### Desktop

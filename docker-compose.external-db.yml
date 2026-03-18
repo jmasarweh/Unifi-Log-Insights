@@ -3,6 +3,11 @@ services:
     image: ghcr.io/jmasarweh/unifi-log-insight:latest
     container_name: unifi-log-insight
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     ports:
       - "514:514/udp"
       - "8090:8000"

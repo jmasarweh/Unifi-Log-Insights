@@ -5,6 +5,11 @@ services:
     #pull_policy: always
     container_name: insights-plus-auth
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     ports:
       - "514:514/udp"
       - "8090:8000"

@@ -80,6 +80,7 @@ export default function App() {
   const [latestRelease, setLatestRelease] = useState(null)
   const [showWizard, setShowWizard] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsInitialSection, setSettingsInitialSection] = useState(null)
   const [settingsReconfig, setSettingsReconfig] = useState(false)
   const [config, setConfig] = useState(null)
   const [configLoaded, setConfigLoaded] = useState(false)
@@ -99,6 +100,7 @@ export default function App() {
   const [allInterfaces, setAllInterfaces] = useState(null)
   const [showWanToast, setShowWanToast] = useState(false)
   const [showUnifiToast, setShowUnifiToast] = useState(false)
+  const [showProxyToast, setShowProxyToast] = useState(false)
   const [theme, setTheme] = useState(() => {
     const urlTheme = new URLSearchParams(window.location.search).get('theme')
     if (urlTheme === 'light' || urlTheme === 'dark') return urlTheme
@@ -234,6 +236,10 @@ export default function App() {
           if (me.authenticated) {
             bootstrapDoneRef.current = true
             setAuthState('authenticated')
+            // Warn if reverse proxy isn't sending X-ULI-Proxy-Auth
+            if (!status.proxy_trusted && !sessionStorage.getItem('proxy_toast_dismissed')) {
+              setShowProxyToast(true)
+            }
           } else {
             bootstrapDoneRef.current = true
             setAuthState('login')
@@ -296,6 +302,20 @@ export default function App() {
     }, 15000)
     return () => clearInterval(interval)
   }, [])
+
+  // Auto-dismiss proxy toast once reverse proxy starts sending X-ULI-Proxy-Auth
+  useEffect(() => {
+    if (!showProxyToast) return
+    const interval = setInterval(() => {
+      fetchAuthStatus().then(status => {
+        if (status.proxy_trusted) {
+          setShowProxyToast(false)
+          setAuthStatus(prev => ({ ...prev, proxy_trusted: true, is_https: status.is_https }))
+        }
+      }).catch(() => {})
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [showProxyToast])
 
   // Close status tooltip on click outside
   useEffect(() => {
@@ -443,7 +463,15 @@ export default function App() {
   }
 
   if (authState === 'login') {
-    return <Login isHttps={authStatus?.is_https} onSuccess={() => setAuthState('authenticated')} />
+    return (
+      <Login
+        isHttps={authStatus?.is_https}
+        proxyTrusted={authStatus?.proxy_trusted}
+        theme={theme}
+        version={health?.version}
+        onSuccess={() => setAuthState('authenticated')}
+      />
+    )
   }
 
   if (!configLoaded) {
@@ -470,8 +498,10 @@ export default function App() {
         setTheme(localStorage.getItem('ui_theme') || 'dark')
         setShowSettings(false)
         setSettingsReconfig(false)
+        setSettingsInitialSection(null)
       }}
       startInReconfig={settingsReconfig}
+      initialSection={settingsInitialSection}
       unlabeledVpn={unlabeledVpn}
       onVpnSaved={(cfg) => reloadConfig(cfg).catch(() => {})}
       version={health?.version}
@@ -554,6 +584,30 @@ export default function App() {
               localStorage.setItem('migration_banner_dismissed', '1')
             }}
             className="text-blue-400 hover:text-blue-300 ml-4"
+          >
+            &#x2715;
+          </button>
+        </div>
+      )}
+
+      {/* Reverse proxy not configured toast */}
+      {showProxyToast && (
+        <div className="flex items-center justify-between px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-xs text-amber-400">
+          <span>
+            Reverse proxy trust is not configured &mdash; HTTPS detection and IP forwarding may not work.{' '}
+            <button
+              onClick={() => { setShowProxyToast(false); setSettingsInitialSection('security'); setShowSettings(true) }}
+              className="underline hover:text-amber-300"
+            >
+              Configure in Settings &rarr; Security
+            </button>
+          </span>
+          <button
+            onClick={() => {
+              setShowProxyToast(false)
+              sessionStorage.setItem('proxy_toast_dismissed', '1')
+            }}
+            className="text-amber-400 hover:text-amber-300 ml-4"
           >
             &#x2715;
           </button>

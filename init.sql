@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS ip_threats (
     abuse_last_reported TIMESTAMPTZ,
     abuse_is_whitelisted BOOLEAN,
     abuse_is_tor BOOLEAN,
-    last_seen_at    TIMESTAMPTZ
+    last_seen_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_ip_threats_looked_up ON ip_threats (looked_up_at);

@@ -519,7 +519,9 @@ class Database:
             """CREATE INDEX IF NOT EXISTS idx_threat_backfill_queue_due
                 ON threat_backfill_queue (next_retry_at, last_seen_at DESC)""",
             # 2. Track recent activity on ip_threats (eliminates OR JOIN to logs)
-            "ALTER TABLE ip_threats ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ",
+            "ALTER TABLE ip_threats ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()",
+            # Ensure default exists even if column was added by an earlier version without one
+            "ALTER TABLE ip_threats ALTER COLUMN last_seen_at SET DEFAULT NOW()",
             """UPDATE ip_threats SET last_seen_at = COALESCE(last_seen_at, looked_up_at)
                WHERE last_seen_at IS NULL""",
             """CREATE INDEX IF NOT EXISTS idx_ip_threats_reenrich_candidates
@@ -658,6 +660,20 @@ class Database:
                         logger.critical(
                             "FATAL: 'ip_threats.last_seen_at' column missing after schema migration. "
                             "The database user '%s' likely lacks ALTER TABLE privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
+                    # Verify DEFAULT exists — if SET DEFAULT was skipped due to
+                    # InsufficientPrivilege, bulk_upsert_threats() would insert NULLs.
+                    vcur.execute("""SELECT column_default FROM information_schema.columns
+                                   WHERE table_schema = 'public' AND table_name = 'ip_threats'
+                                     AND column_name = 'last_seen_at'""")
+                    col_row = vcur.fetchone()
+                    if not col_row or not col_row[0]:
+                        logger.critical(
+                            "FATAL: 'ip_threats.last_seen_at' has no DEFAULT after schema migration. "
+                            "The database user '%s' likely lacks ALTER TABLE privilege to SET DEFAULT. %s",
                             db_user, grant_hint
                         )
                         sys.exit(1)

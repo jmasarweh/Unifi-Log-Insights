@@ -22,6 +22,12 @@ export function formatTime(ts) {
   return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
+export function formatDateShort(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+}
+
 export function formatDateTime(ts) {
   if (!ts) return '—'
   const d = new Date(ts)

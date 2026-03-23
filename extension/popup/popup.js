@@ -262,6 +262,10 @@ connectBtn.addEventListener('click', async () => {
 
   // HTTPS full URLs use as-is (standard port 443); bare IPs/hostnames get port appended
   // When auth is required, default to https and skip port
+  if (detectedAuthRequired && /^http:\/\//i.test(host)) {
+    showSetupError('Authentication requires HTTPS. Remove http:// or use https://.');
+    return;
+  }
   const isHttps = /^https:\/\//i.test(host);
   let url;
   if (isHttps) {
@@ -357,7 +361,7 @@ async function showConnected(settings) {
 
   // Auth gate: server reachable, requires auth, and either no token or token was revoked
   if (serverReachable && authRequired && (!hasToken || !tokenResp.validated)) {
-    const isHttp = baseUrl.startsWith('http://');
+    const isHttp = baseUrl.toLowerCase().startsWith('http://');
     if (isHttp) {
       authGateError.textContent = 'Authentication requires HTTPS. Click "Reset Extension" below and reconnect using your external HTTPS address (e.g. https://logs.yourdomain.com).';
       authGateError.hidden = false;

@@ -58,6 +58,7 @@ describe('fetchLogs (indirectly tests buildQS)', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
+      json: () => Promise.resolve({}),
     }))
 
     await expect(fetchLogs()).rejects.toThrow('API error: 500')

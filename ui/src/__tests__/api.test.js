@@ -102,6 +102,11 @@ describe('fetchStats', () => {
 })
 
 
+/** Mock a non-ok response that works with apiFetch (which calls resp.json()). */
+function mockErrorResponse(status) {
+  return { ok: false, status, json: () => Promise.resolve({}) }
+}
+
 describe('fetchStatsOverview', () => {
   it('calls /api/stats/overview with time_range', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
@@ -122,6 +127,12 @@ describe('fetchStatsOverview', () => {
 
     await fetchStatsOverview()
     expect(fetch.mock.calls[0][0]).toBe('/api/stats/overview?time_range=24h')
+  })
+
+  it('throws on non-ok response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockErrorResponse(500)))
+
+    await expect(fetchStatsOverview()).rejects.toThrow('API error: 500')
   })
 })
 
@@ -147,6 +158,12 @@ describe('fetchStatsCharts', () => {
     await fetchStatsCharts()
     expect(fetch.mock.calls[0][0]).toBe('/api/stats/charts?time_range=24h')
   })
+
+  it('throws on non-ok response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockErrorResponse(500)))
+
+    await expect(fetchStatsCharts()).rejects.toThrow('API error: 500')
+  })
 })
 
 
@@ -170,6 +187,12 @@ describe('fetchStatsTables', () => {
 
     await fetchStatsTables()
     expect(fetch.mock.calls[0][0]).toBe('/api/stats/tables?time_range=24h')
+  })
+
+  it('throws on non-ok response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockErrorResponse(500)))
+
+    await expect(fetchStatsTables()).rejects.toThrow('API error: 500')
   })
 })
 

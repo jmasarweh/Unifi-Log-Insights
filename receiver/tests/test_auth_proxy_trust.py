@@ -67,6 +67,10 @@ class TestProxyHeaderTrust:
 
 # ── Fake Request for get_real_client_ip / get_forwarded_proto unit tests ──
 
+class _FakeURL:
+    def __init__(self, scheme):
+        self.scheme = scheme
+
 class _FakeClient:
     def __init__(self, host):
         self.host = host
@@ -76,7 +80,7 @@ class _FakeRequest:
     def __init__(self, headers: dict, client_host: str = '127.0.0.1', scheme: str = 'http'):
         self.client = _FakeClient(client_host)
         self.headers = {k.lower(): v for k, v in headers.items()}
-        self.url = type('U', (), {'scheme': scheme})()
+        self.url = _FakeURL(scheme)
 
 
 def _get_real_client_ip(request, expected_token: str) -> str:

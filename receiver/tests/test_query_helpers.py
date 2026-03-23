@@ -359,3 +359,17 @@ class TestSanitizeCsvCell:
     def test_numeric_strings_unchanged(self):
         assert sanitize_csv_cell("42") == "42"
         assert sanitize_csv_cell("0") == "0"
+
+    def test_single_quote_prefix_unchanged(self):
+        # Single quote is not in _CSV_FORMULA_PREFIXES — not a formula trigger
+        assert sanitize_csv_cell("'hello") == "'hello"
+
+    def test_whitespace_only_unchanged(self):
+        assert sanitize_csv_cell("   ") == "   "
+
+    def test_none_passthrough(self):
+        assert sanitize_csv_cell(None) is None
+
+    def test_non_string_raises(self):
+        with pytest.raises(TypeError):
+            sanitize_csv_cell(42)

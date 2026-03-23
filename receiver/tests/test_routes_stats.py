@@ -119,6 +119,20 @@ class TestStatsOverview:
         assert resp.status_code == 200
         assert resp.json()['time_range'] == '24h'
 
+    def test_overview_db_failure(self, client):
+        test_client, mock_deps, _ = client
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = Exception('DB error')
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_deps.get_conn.return_value = mock_conn
+
+        resp = test_client.get('/api/stats/overview?time_range=24h')
+        assert resp.status_code == 500
+        assert 'detail' in resp.json()
+
 
 class TestStatsCharts:
     def test_charts_returns_expected_keys(self, client):
@@ -143,6 +157,20 @@ class TestStatsCharts:
         assert data['logs_over_time'] == data['logs_per_hour']
         assert data['traffic_by_action'][0]['allow'] == 80
         assert data['traffic_by_action'][0]['block'] == 20
+
+    def test_charts_db_failure(self, client):
+        test_client, mock_deps, _ = client
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = Exception('DB error')
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_deps.get_conn.return_value = mock_conn
+
+        resp = test_client.get('/api/stats/charts?time_range=24h')
+        assert resp.status_code == 500
+        assert 'detail' in resp.json()
 
 
 class TestStatsTables:
@@ -202,3 +230,5 @@ class TestStatsTables:
 
         resp = test_client.get('/api/stats/tables?time_range=24h')
         assert resp.status_code == 500
+        body = resp.json()
+        assert 'detail' in body

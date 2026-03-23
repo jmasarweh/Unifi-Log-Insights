@@ -1,0 +1,338 @@
+name: Publish Browser Extension
+
+on:
+  push:
+    tags:
+      - 'ext-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build extension
+        run: |
+          cd extension
+          bash build.sh
+
+      - name: Extract and validate version
+        id: version
+        run: |
+          CHROME_VER=$(jq -r '.version' extension/dist/chrome/manifest.json)
+          FIREFOX_VER=$(jq -r '.version' extension/dist/firefox/manifest.json)
+          TAG_VER="${GITHUB_REF_NAME#ext-v}"
+
+          echo "Chrome manifest version: $CHROME_VER"
+          echo "Firefox manifest version: $FIREFOX_VER"
+          echo "Tag version: $TAG_VER"
+
+          if [ "$CHROME_VER" != "$FIREFOX_VER" ]; then
+            echo "::error::Chrome ($CHROME_VER) and Firefox ($FIREFOX_VER) manifest versions do not match"
+            exit 1
+          fi
+
+          if [ "$CHROME_VER" != "$TAG_VER" ]; then
+            echo "::error::Manifest version ($CHROME_VER) does not match tag version ($TAG_VER)"
+            exit 1
+          fi
+
+          echo "version=$CHROME_VER" >> "$GITHUB_OUTPUT"
+
+      - name: Zip Chrome build
+        run: cd extension/dist/chrome && zip -r ../../../chrome.zip .
+
+      - name: Zip Firefox build
+        run: cd extension/dist/firefox && zip -r ../../../firefox.zip .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-zips
+          path: |
+            chrome.zip
+            firefox.zip
+
+  publish-chrome:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-zips
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install google-auth-library
+        run: npm install google-auth-library
+
+      - name: Get access token
+        id: auth
+        env:
+          CWS_SERVICE_ACCOUNT_KEY: ${{ secrets.CWS_SERVICE_ACCOUNT_KEY }}
+        run: |
+          TOKEN=$(node -e "
+            const { GoogleAuth } = require('google-auth-library');
+            (async () => {
+              const key = JSON.parse(process.env.CWS_SERVICE_ACCOUNT_KEY);
+              const auth = new GoogleAuth({
+                credentials: key,
+                scopes: ['https://www.googleapis.com/auth/chromewebstore'],
+              });
+              const client = await auth.getClient();
+              const token = await client.getAccessToken();
+              process.stdout.write(token.token);
+            })();
+          ")
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to Chrome Web Store
+        id: upload
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:upload" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @chrome.zip)
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Upload response (HTTP $HTTP_CODE):"
+          echo "$BODY"
+
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::CWS upload failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          STATE=$(echo "$BODY" | jq -r '.uploadState // .state // empty')
+          if [ "$STATE" = "FAILURE" ]; then
+            echo "::error::CWS upload state is FAILURE"
+            echo "$BODY" | jq '.itemError // .errors // empty'
+            exit 1
+          fi
+
+      - name: Publish on Chrome Web Store
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            "https://chromewebstore.googleapis.com/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:publish" \
+            -H "Authorization: Bearer ${TOKEN}")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Publish response (HTTP $HTTP_CODE):"
+          echo "$BODY"
+
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::CWS publish failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+      - name: Check publish status
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          RESPONSE=$(curl -s \
+            "https://chromewebstore.googleapis.com/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:fetchStatus" \
+            -H "Authorization: Bearer ${TOKEN}")
+
+          echo "Status:"
+          echo "$RESPONSE" | jq .
+
+  publish-firefox:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-zips
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install jsonwebtoken
+        run: npm install jsonwebtoken
+
+      - name: Upload to AMO
+        id: upload
+        env:
+          AMO_API_KEY: ${{ secrets.AMO_API_KEY }}
+          AMO_API_SECRET: ${{ secrets.AMO_API_SECRET }}
+        run: |
+          TOKEN=$(node -e "
+            const jwt = require('jsonwebtoken');
+            const token = jwt.sign(
+              {
+                iss: process.env.AMO_API_KEY,
+                jti: Math.random().toString(36).substring(2),
+                iat: Math.floor(Date.now() / 1000),
+                exp: Math.floor(Date.now() / 1000) + 300,
+              },
+              process.env.AMO_API_SECRET,
+              { algorithm: 'HS256' }
+            );
+            process.stdout.write(token);
+          ")
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            "https://addons.mozilla.org/api/v5/addons/upload/" \
+            -H "Authorization: JWT ${TOKEN}" \
+            -F "upload=@firefox.zip" \
+            -F "channel=listed")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Upload response (HTTP $HTTP_CODE):"
+          echo "$BODY"
+
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::AMO upload failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          UUID=$(echo "$BODY" | jq -r '.uuid')
+          echo "uuid=$UUID" >> "$GITHUB_OUTPUT"
+
+      - name: Poll upload validation
+        id: validate
+        env:
+          AMO_API_KEY: ${{ secrets.AMO_API_KEY }}
+          AMO_API_SECRET: ${{ secrets.AMO_API_SECRET }}
+          UPLOAD_UUID: ${{ steps.upload.outputs.uuid }}
+        run: |
+          for i in $(seq 1 30); do
+            TOKEN=$(node -e "
+              const jwt = require('jsonwebtoken');
+              const token = jwt.sign(
+                {
+                  iss: process.env.AMO_API_KEY,
+                  jti: Math.random().toString(36).substring(2),
+                  iat: Math.floor(Date.now() / 1000),
+                  exp: Math.floor(Date.now() / 1000) + 300,
+                },
+                process.env.AMO_API_SECRET,
+                { algorithm: 'HS256' }
+              );
+              process.stdout.write(token);
+            ")
+
+            RESPONSE=$(curl -s \
+              "https://addons.mozilla.org/api/v5/addons/upload/${UPLOAD_UUID}/" \
+              -H "Authorization: JWT ${TOKEN}")
+
+            PROCESSED=$(echo "$RESPONSE" | jq -r '.processed')
+            echo "Poll $i: processed=$PROCESSED"
+
+            if [ "$PROCESSED" = "true" ]; then
+              VALID=$(echo "$RESPONSE" | jq -r '.valid')
+              echo "Validation result: valid=$VALID"
+
+              if [ "$VALID" != "true" ]; then
+                echo "::error::AMO validation failed"
+                echo "$RESPONSE" | jq '.validation'
+                exit 1
+              fi
+
+              echo "Validation passed"
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "::error::AMO validation timed out after 5 minutes"
+          exit 1
+
+      - name: Create version on AMO
+        env:
+          AMO_API_KEY: ${{ secrets.AMO_API_KEY }}
+          AMO_API_SECRET: ${{ secrets.AMO_API_SECRET }}
+          AMO_EXTENSION_ID: ${{ secrets.AMO_EXTENSION_ID }}
+          UPLOAD_UUID: ${{ steps.upload.outputs.uuid }}
+        run: |
+          TOKEN=$(node -e "
+            const jwt = require('jsonwebtoken');
+            const token = jwt.sign(
+              {
+                iss: process.env.AMO_API_KEY,
+                jti: Math.random().toString(36).substring(2),
+                iat: Math.floor(Date.now() / 1000),
+                exp: Math.floor(Date.now() / 1000) + 300,
+              },
+              process.env.AMO_API_SECRET,
+              { algorithm: 'HS256' }
+            );
+            process.stdout.write(token);
+          ")
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            "https://addons.mozilla.org/api/v5/addons/addon/${AMO_EXTENSION_ID}/versions/" \
+            -H "Authorization: JWT ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"upload\": \"${UPLOAD_UUID}\"}")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Create version response (HTTP $HTTP_CODE):"
+          echo "$BODY"
+
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::AMO version creation failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          echo "Firefox version submitted for review"
+
+  create-release:
+    needs: [build, publish-chrome, publish-firefox]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-zips
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Extension v${VERSION}" \
+            --notes "Browser extension v${VERSION}
+
+          - Submitted to Chrome Web Store (pending review)
+          - Submitted to Mozilla Add-ons (pending review)" \
+            chrome.zip firefox.zip

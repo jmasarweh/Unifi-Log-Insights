@@ -2,10 +2,12 @@
 
 import ipaddress
 import logging
+from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Query, HTTPException
+
 from psycopg2.extras import RealDictCursor
 
 from db import get_config
@@ -37,15 +39,52 @@ MIN_TOP_N = 3
 
 
 
+def _remap_top_n(grouped_rows, top_n):
+    """Pick top-N values per dimension and remap the rest to 'Other'.
+
+    Args:
+        grouped_rows: list of tuples (a, b, c, count) from single GROUP BY query.
+        top_n: number of top values to keep per dimension.
+
+    Returns:
+        list of (a, b, c, count) tuples with non-top values replaced by 'Other'
+        and re-aggregated.
+    """
+    # 1. Accumulate totals per dimension value
+    totals_a = defaultdict(int)
+    totals_b = defaultdict(int)
+    totals_c = defaultdict(int)
+    for row in grouped_rows:
+        totals_a[row[0]] += row[3]
+        totals_b[row[1]] += row[3]
+        totals_c[row[2]] += row[3]
+
+    # 2. Pick top N for each dimension
+    top_a = {v for v, _ in sorted(totals_a.items(), key=lambda x: -x[1])[:top_n]}
+    top_b = {v for v, _ in sorted(totals_b.items(), key=lambda x: -x[1])[:top_n]}
+    top_c = {v for v, _ in sorted(totals_c.items(), key=lambda x: -x[1])[:top_n]}
+
+    # 3. Remap non-top values to "Other" and re-aggregate
+    final = defaultdict(int)
+    for row in grouped_rows:
+        a = row[0] if row[0] in top_a else 'Other'
+        b = row[1] if row[1] in top_b else 'Other'
+        c = row[2] if row[2] in top_c else 'Other'
+        final[(a, b, c)] += row[3]
+
+    # Sort by count descending for deterministic Sankey layout ordering
+    return [(a, b, c, cnt) for (a, b, c), cnt in sorted(final.items(), key=lambda x: -x[1])]
+
+
 def _build_sankey(rows, dims, requested_top_n, applied_top_n):
-    """Convert aggregated rows into nodes + links for the Sankey chart."""
+    """Convert remapped (a, b, c, count) tuples into nodes + links for Sankey."""
     node_values = {}  # id -> total value
     link_map = {}     # (source_id, target_id) -> value
 
     dim_a, dim_b, dim_c = dims
 
     for row in rows:
-        a_val, b_val, c_val, value = row['a'], row['b'], row['c'], row['value']
+        a_val, b_val, c_val, value = row
         a_id = f"{dim_a}:{a_val}"
         b_id = f"{dim_b}:{b_val}"
         c_id = f"{dim_c}:{c_val}"
@@ -183,41 +222,31 @@ def get_flow_graph(
     requested_top_n = top_n
     base_params = params + ip_params_extra
 
-    # Try with current top_n, reduce if node/link caps exceeded
+    # Single-pass: one GROUP BY query, then Python-side top-N remapping.
+    # This replaces the old 4-CTE pattern that re-scanned filtered rows 4+ times.
+    sql = f"""
+    SELECT ({dim_a_expr})::text AS a,
+           ({dim_b_expr})::text AS b,
+           ({dim_c_expr})::text AS c,
+           COUNT(*) AS value
+    FROM logs
+    WHERE {where}
+      AND src_ip IS NOT NULL AND dst_ip IS NOT NULL
+      {ip_filter}
+    GROUP BY 1, 2, 3
+    """
+
     conn = get_conn()
     try:
+        # Tuple cursor — ~288K groups at 30d fits in a few MB vs 30-50 MB with RealDictCursor
+        with conn.cursor() as cur:
+            cur.execute(sql, base_params)
+            grouped_rows = cur.fetchall()
+
+        # Remap with current top_n; retry with lower top_n if caps exceeded (no DB re-query)
         while top_n >= MIN_TOP_N:
-            sql = f"""
-            WITH filtered AS (
-                SELECT src_ip, dst_ip, dst_port, LOWER(protocol) AS protocol,
-                       service_name, direction, interface_in, interface_out
-                FROM logs
-                WHERE {where}
-                  AND src_ip IS NOT NULL AND dst_ip IS NOT NULL
-                  {ip_filter}
-            ),
-            top_a AS (SELECT {dim_a_expr} AS val FROM filtered GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT %s),
-            top_b AS (SELECT {dim_b_expr} AS val FROM filtered GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT %s),
-            top_c AS (SELECT {dim_c_expr} AS val FROM filtered GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT %s),
-            mapped AS (
-                SELECT
-                    CASE WHEN {dim_a_expr} IN (SELECT val FROM top_a) THEN ({dim_a_expr})::text ELSE 'Other' END AS a,
-                    CASE WHEN {dim_b_expr} IN (SELECT val FROM top_b) THEN ({dim_b_expr})::text ELSE 'Other' END AS b,
-                    CASE WHEN {dim_c_expr} IN (SELECT val FROM top_c) THEN ({dim_c_expr})::text ELSE 'Other' END AS c
-                FROM filtered
-            )
-            SELECT a, b, c, COUNT(*) AS value
-            FROM mapped
-            GROUP BY a, b, c
-            ORDER BY value DESC
-            """
-            query_params = base_params + [top_n, top_n, top_n]
-
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(sql, query_params)
-                rows = cur.fetchall()
-
-            nodes, links, _ = _build_sankey(rows, dims, requested_top_n, top_n)
+            remapped = _remap_top_n(grouped_rows, top_n)
+            nodes, links, _ = _build_sankey(remapped, dims, requested_top_n, top_n)
 
             if len(nodes) <= MAX_NODES and len(links) <= MAX_LINKS:
                 device_names, gateway_vlans, vpn_badges = _lookup_ip_info(conn, nodes)
@@ -369,7 +398,9 @@ def get_host_detail(
                     COUNT(*) FILTER (WHERE rule_action = 'block') AS block_count,
                     COUNT(DISTINCT CASE WHEN src_ip = %s::inet THEN host(dst_ip) ELSE host(src_ip) END) AS unique_peers,
                     MIN(timestamp) AS first_seen,
-                    MAX(timestamp) AS last_seen
+                    MAX(timestamp) AS last_seen,
+                    MAX(asn_name) AS asn_name,
+                    MAX(rdns) AS rdns
                 FROM logs
                 WHERE {host_where}
             """, [ip] + host_params)
@@ -407,6 +438,10 @@ def get_host_detail(
             if vpn_badge and not device.get('network'):
                 device['network'] = vpn_badge
 
+            # Enrich header with ASN/rDNS from summary query (useful for external IPs with no device entry)
+            device['asn_name'] = summary.pop('asn_name', None)
+            device['rdns'] = summary.pop('rdns', None)
+
             # 3. Top outbound peers (this IP as source)
             src_where = f"{where} AND src_ip = %s::inet"
             src_params = params + [ip]
@@ -414,7 +449,9 @@ def get_host_detail(
                 SELECT host(dst_ip) AS peer_ip,
                        COUNT(*) AS count,
                        COUNT(*) FILTER (WHERE rule_action = 'allow') AS allow_count,
-                       COUNT(*) FILTER (WHERE rule_action = 'block') AS block_count
+                       COUNT(*) FILTER (WHERE rule_action = 'block') AS block_count,
+                       MAX(asn_name) AS asn_name,
+                       MAX(rdns) AS rdns
                 FROM logs
                 WHERE {src_where} AND dst_ip IS NOT NULL
                 GROUP BY dst_ip
@@ -430,7 +467,9 @@ def get_host_detail(
                 SELECT host(src_ip) AS peer_ip,
                        COUNT(*) AS count,
                        COUNT(*) FILTER (WHERE rule_action = 'allow') AS allow_count,
-                       COUNT(*) FILTER (WHERE rule_action = 'block') AS block_count
+                       COUNT(*) FILTER (WHERE rule_action = 'block') AS block_count,
+                       MAX(asn_name) AS asn_name,
+                       MAX(rdns) AS rdns
                 FROM logs
                 WHERE {dst_where} AND src_ip IS NOT NULL
                 GROUP BY src_ip
@@ -476,6 +515,8 @@ def get_host_detail(
             "network": device.get("network"),
             "vlan": device.get("vlan"),
             "mac": device.get("mac"),
+            "asn_name": device.get("asn_name"),
+            "rdns": device.get("rdns"),
             "summary": summary,
             "peers_as_source": peers_out_raw,
             "peers_as_destination": peers_in_raw,

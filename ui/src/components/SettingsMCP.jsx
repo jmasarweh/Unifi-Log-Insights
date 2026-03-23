@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   fetchMcpSettings, updateMcpSettings,
-  fetchMcpScopes, fetchMcpTokens, fetchMcpAudit,
-  createMcpToken, revokeMcpToken
+  fetchMcpScopes, fetchMcpAudit,
 } from '../api'
+import useApiTokens from '../hooks/useApiTokens'
 import CopyButton from './CopyButton'
+import TokenCreatedModal from './TokenCreatedModal'
+import TokenList from './TokenList'
 
 const TEAL = 'text-teal-500 hover:text-teal-400'
 
@@ -17,18 +19,22 @@ const GeminiIcon = () => (
 )
 
 export default function SettingsMCP() {
+  const { tokens, reload: reloadTokens, create: createToken, revoke: revokeToken } = useApiTokens('mcp')
   const [settings, setSettings] = useState(null)
   const [draft, setDraft] = useState(null)
   const [originsText, setOriginsText] = useState('')
   const [scopes, setScopes] = useState([])
-  const [tokens, setTokens] = useState([])
   const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState(null)
   const [auditEntries, setAuditEntries] = useState([])
   const [auditTotal, setAuditTotal] = useState(0)
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditLoaded, setAuditLoaded] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+
+  // Per-card inline status
+  const [serverStatus, setServerStatus] = useState(null) // { type: 'saved'|'error', text }
+  const [tokenStatus, setTokenStatus] = useState(null)   // { type: 'saved'|'error', text }
+  const [auditStatus, setAuditStatus] = useState(null)   // { type: 'error', text }
 
   const [tokenName, setTokenName] = useState('')
   const [tokenScopes, setTokenScopes] = useState(new Set())
@@ -37,6 +43,7 @@ export default function SettingsMCP() {
   const [showTokenModal, setShowTokenModal] = useState(false)
 
   const [lastCreatedToken, setLastCreatedToken] = useState(null)
+  const [revoking, setRevoking] = useState(null) // token ID being revoked
 
   const mcpUrl = typeof window !== 'undefined'
     ? `${window.location.origin}/api/mcp`
@@ -87,25 +94,25 @@ export default function SettingsMCP() {
 
   async function reloadAll() {
     try {
-      const [settingsData, scopesData, tokensData] = await Promise.all([
+      const [settingsData, scopesData, tokenErr] = await Promise.all([
         fetchMcpSettings(),
         fetchMcpScopes(),
-        fetchMcpTokens()
+        reloadTokens(),
       ])
       setSettings(settingsData)
       setDraft(settingsData)
       setOriginsText((settingsData.allowed_origins || []).join('\n'))
       setScopes(scopesData.scopes || [])
-      setTokens(tokensData.tokens || [])
+      if (tokenErr) setTokenStatus({ type: 'error', text: tokenErr })
     } catch (e) {
-      setMessage({ type: 'error', text: e.message })
+      setServerStatus({ type: 'error', text: e.message })
     }
   }
 
   async function handleSave() {
     if (!draft) return
     setSaving(true)
-    setMessage(null)
+    setServerStatus(null)
     try {
       const allowedOrigins = originsText
         .split(/\r?\n|,/)
@@ -115,10 +122,9 @@ export default function SettingsMCP() {
       await updateMcpSettings(payload)
       setSettings(payload)
       setDraft(payload)
-      setMessage({ type: 'success', text: 'MCP settings saved' })
-      setTimeout(() => setMessage(null), 3000)
+      setServerStatus({ type: 'saved', text: 'Settings saved' })
     } catch (e) {
-      setMessage({ type: 'error', text: e.message })
+      setServerStatus({ type: 'error', text: e.message })
     } finally {
       setSaving(false)
     }
@@ -126,15 +132,14 @@ export default function SettingsMCP() {
 
   async function savePartial(partial) {
     setSaving(true)
-    setMessage(null)
+    setServerStatus(null)
     try {
       await updateMcpSettings(partial)
       setSettings(prev => ({ ...prev, ...partial }))
       setDraft(prev => ({ ...prev, ...partial }))
-      setMessage({ type: 'success', text: 'MCP settings saved' })
-      setTimeout(() => setMessage(null), 3000)
+      setServerStatus({ type: 'saved', text: 'Settings saved' })
     } catch (e) {
-      setMessage({ type: 'error', text: e.message })
+      setServerStatus({ type: 'error', text: e.message })
       throw e
     } finally {
       setSaving(false)
@@ -152,27 +157,27 @@ export default function SettingsMCP() {
 
   async function handleCreateToken() {
     if (tokenScopes.size === 0) {
-      setMessage({ type: 'error', text: 'Select at least one scope' })
+      setTokenStatus({ type: 'error', text: 'Select at least one scope' })
       return
     }
     setCreating(true)
-    setMessage(null)
+    setTokenStatus(null)
     try {
-      const result = await createMcpToken({
+      // client_type is required in the create payload — useApiTokens('mcp') only
+      // filters the list query, it does not inject client_type into creates.
+      const result = await createToken({
         name: tokenName.trim() || 'MCP Token',
         scopes: Array.from(tokenScopes),
+        client_type: 'mcp',
       })
       setCreatedToken(result.token)
       setLastCreatedToken(result.token)
       setShowTokenModal(true)
       setTokenName('')
       setTokenScopes(new Set())
-      const refreshed = await fetchMcpTokens()
-      setTokens(refreshed.tokens || [])
-      setMessage({ type: 'success', text: 'Token created' })
-      setTimeout(() => setMessage(null), 3000)
+      setTokenStatus({ type: 'saved', text: 'Token created' })
     } catch (e) {
-      setMessage({ type: 'error', text: e.message })
+      setTokenStatus({ type: 'error', text: e.message })
     } finally {
       setCreating(false)
     }
@@ -180,28 +185,31 @@ export default function SettingsMCP() {
 
   async function handleRevoke(tokenId) {
     if (!tokenId) return
-    if (!confirm('Revoke this token? This cannot be undone.')) return
-    setMessage(null)
+    // Native confirm() is appropriate here — project has no ConfirmModal component,
+    // and this is a destructive settings action behind admin auth.
+    if (!window.confirm('Revoke this token? This cannot be undone.')) return
+    setTokenStatus(null)
+    setRevoking(tokenId)
     try {
-      await revokeMcpToken(tokenId)
-      const refreshed = await fetchMcpTokens()
-      setTokens(refreshed.tokens || [])
-      setMessage({ type: 'success', text: 'Token revoked' })
-      setTimeout(() => setMessage(null), 3000)
+      await revokeToken(tokenId)
+      setTokenStatus({ type: 'saved', text: 'Token revoked' })
     } catch (e) {
-      setMessage({ type: 'error', text: e.message })
+      setTokenStatus({ type: 'error', text: e.message })
+    } finally {
+      setRevoking(null)
     }
   }
 
   async function loadAudit() {
     setAuditLoading(true)
+    setAuditStatus(null)
     try {
       const data = await fetchMcpAudit(200, 0)
       setAuditEntries(data.entries || [])
       setAuditTotal(data.total || 0)
       setAuditLoaded(true)
     } catch (e) {
-      setMessage({ type: 'error', text: e.message })
+      setAuditStatus({ type: 'error', text: e.message })
     } finally {
       setAuditLoading(false)
     }
@@ -213,16 +221,6 @@ export default function SettingsMCP() {
 
   return (
     <div className="space-y-8">
-      {message && (
-        <div className={`text-sm px-3 py-2 rounded border ${
-          message.type === 'error'
-            ? 'border-red-500/40 text-red-300 bg-red-500/10'
-            : 'border-green-500/40 text-green-300 bg-green-500/10'
-        }`}>
-          {message.text}
-        </div>
-      )}
-
       {/* ── MCP Server ─────────────────────────────────────────── */}
       <section>
         <h2 className="text-base font-semibold text-gray-300 mb-3 uppercase tracking-wider">
@@ -247,7 +245,7 @@ export default function SettingsMCP() {
                 className={`px-3 py-1 rounded text-sm font-semibold border transition-colors ${
                   draft.enabled
                     ? 'bg-green-500/10 text-green-300 border-green-500/40'
-                    : 'bg-gray-900 text-gray-400 border-gray-700'
+                    : 'bg-black text-gray-400 border-gray-700'
                 }`}
               >
                 {draft.enabled ? 'Enabled' : 'Disabled'}
@@ -271,7 +269,7 @@ export default function SettingsMCP() {
                 className={`px-3 py-1 rounded text-sm font-semibold border transition-colors ${
                   draft.audit_enabled
                     ? 'bg-green-500/10 text-green-300 border-green-500/40'
-                    : 'bg-gray-900 text-gray-400 border-gray-700'
+                    : 'bg-black text-gray-400 border-gray-700'
                 }`}
               >
                 {draft.audit_enabled ? 'Enabled' : 'Disabled'}
@@ -290,7 +288,7 @@ export default function SettingsMCP() {
                     ...prev,
                     audit_retention_days: Math.max(1, Math.min(365, parseInt(e.target.value) || 1))
                   }))}
-                  className="w-16 px-2 py-1 rounded bg-gray-900 border border-gray-600 font-mono text-sm text-gray-200 text-right focus:border-blue-500 focus:outline-none"
+                  className="w-16 px-2 py-1 rounded bg-black border border-gray-600 font-mono text-sm text-gray-200 text-right focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                 />
                 <span className="text-sm text-gray-500">days</span>
               </div>
@@ -325,7 +323,7 @@ export default function SettingsMCP() {
                       setDraft(prev => ({ ...prev, allowed_origins: parsed }))
                     }}
                     placeholder="https://your-client.example.com"
-                    className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200 font-mono focus:border-blue-500 focus:outline-none"
+                    className="w-full px-3 py-2 rounded bg-black border border-gray-700 text-sm text-gray-200 font-mono focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                   />
                 </div>
               </div>
@@ -335,7 +333,11 @@ export default function SettingsMCP() {
           <div className="border-t border-gray-800" />
 
           <div className="px-5 py-3 flex items-center justify-between">
-            <p className="text-xs text-gray-500">MCP endpoint: /api/mcp</p>
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-gray-500">MCP endpoint: /api/mcp</p>
+              {serverStatus?.type === 'saved' && <span className="text-sm text-emerald-400">{serverStatus.text}</span>}
+              {serverStatus?.type === 'error' && <span className="text-sm text-red-400">{serverStatus.text}</span>}
+            </div>
             <button
               onClick={handleSave}
               disabled={!canSave || saving}
@@ -368,7 +370,7 @@ export default function SettingsMCP() {
                   value={tokenName}
                   onChange={e => setTokenName(e.target.value)}
                   placeholder="Token name (optional)"
-                  className="flex-1 px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200 focus:border-blue-500 focus:outline-none"
+                  className="flex-1 px-3 py-2 rounded bg-black border border-gray-700 text-sm text-gray-200 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                 />
                 <button
                   onClick={handleCreateToken}
@@ -390,7 +392,7 @@ export default function SettingsMCP() {
                     />
                     <span>
                       <span className="text-gray-200 font-medium">{scope.description}</span>
-                      <span className="block text-xs text-gray-500 font-mono">{scope.id}</span>
+                      <span className="block text-sm text-gray-500 font-mono">{scope.id}</span>
                     </span>
                   </label>
                 ))}
@@ -401,44 +403,23 @@ export default function SettingsMCP() {
           <div className="border-t border-gray-800" />
 
           <div className="p-5">
-            <p className="text-sm font-medium text-gray-200 mb-3">Active tokens</p>
-            <div className="space-y-2">
-              {tokens.length === 0 && (
-                <p className="text-sm text-gray-600">No tokens yet.</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-base text-gray-200 font-medium">Active tokens</p>
+              {tokenStatus && (
+                <span className={`text-sm ${tokenStatus.type === 'saved' ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {tokenStatus.text}
+                </span>
               )}
-              {tokens.map(token => (
-                <div
-                  key={token.id}
-                  className="flex items-center justify-between gap-3 px-3 py-2 rounded border border-gray-800 bg-gray-900/60"
-                >
-                  <div className="min-w-0">
-                    <p className="text-base text-gray-200 font-medium truncate">{token.name}</p>
-                    <p className="text-xs text-gray-500 font-mono truncate">
-                      {token.token_prefix?.startsWith('uli-mcp') ? '' : 'uli-mcp_'}{token.token_prefix}… · {token.scopes?.join(', ') || 'no scopes'}
-                    </p>
-                    <p className="text-xs text-gray-600">
-                      Created {token.created_at ? new Date(token.created_at).toLocaleString() : 'unknown'}
-                      {token.last_used_at && ` · Last used ${new Date(token.last_used_at).toLocaleString()}`}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs uppercase font-semibold px-2 py-0.5 rounded ${
-                      token.disabled ? 'bg-gray-700 text-gray-300' : 'bg-green-500/10 text-green-300'
-                    }`}>
-                      {token.disabled ? 'Disabled' : 'Active'}
-                    </span>
-                    {!token.disabled && (
-                      <button
-                        onClick={() => handleRevoke(token.id)}
-                        className="px-2 py-1 text-sm font-semibold rounded bg-teal-600 hover:bg-teal-500 text-white transition-colors"
-                      >
-                        Revoke
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
             </div>
+            <TokenList
+              tokens={tokens}
+              onRevoke={(id) => handleRevoke(id)} // wrapper intentionally drops 2nd arg (name) from TokenList callback
+              revokingId={revoking}
+              formatPrefix={t => {
+                if (!t.token_prefix) return t.client_type || 'mcp'
+                return `${t.token_prefix.startsWith('uli-mcp') ? '' : 'uli-mcp_'}${t.token_prefix}…`
+              }}
+            />
           </div>
         </div>
       </section>
@@ -462,11 +443,11 @@ export default function SettingsMCP() {
               </div>
             ) : (
               <div className="px-5 pt-4 pb-0">
-                <div className="flex items-start gap-2 text-sm px-3 py-2 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400">
-                  <svg className="w-3.5 h-3.5 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded px-3 py-2">
+                  <svg className="w-4 h-4 text-yellow-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                   </svg>
-                  <span>Snippets contain <span className="font-mono font-semibold">&lt;YOUR_TOKEN&gt;</span> as placeholder. Create a token in the MCP Tokens section above, then return here — your token will be auto-filled.</span>
+                  <p className="text-sm text-yellow-400/90">Snippets contain <span className="font-mono font-semibold">&lt;YOUR_TOKEN&gt;</span> as placeholder. Create a token in the MCP Tokens section above, then return here — your token will be auto-filled.</p>
                 </div>
               </div>
             )}
@@ -476,7 +457,7 @@ export default function SettingsMCP() {
               <div className="flex items-center justify-between gap-3">
                 <span className="text-sm text-gray-400">Server URL</span>
                 <div className="flex items-center gap-1">
-                  <span className="text-sm text-gray-200 font-mono bg-gray-900 border border-gray-800 rounded px-2 py-1 break-all">
+                  <span className="text-sm text-gray-200 font-mono bg-black border border-gray-800 rounded px-2 py-1 break-all">
                     {mcpUrl}
                   </span>
                   <CopyButton text={mcpUrl} color={TEAL} />
@@ -509,7 +490,7 @@ export default function SettingsMCP() {
                   <span className="text-gray-600 text-sm">·</span>
                   <details className="inline">
                     <summary className="text-sm text-teal-400 hover:text-teal-300 cursor-pointer">Show example</summary>
-                    <pre className="mt-2 text-sm text-gray-300 bg-gray-900 border border-gray-800 rounded p-3 overflow-x-auto whitespace-pre font-mono">
+                    <pre className="mt-2 text-sm text-gray-300 bg-black border border-gray-800 rounded p-3 overflow-x-auto whitespace-pre font-mono">
                       {fullConfig}
                     </pre>
                   </details>
@@ -521,7 +502,7 @@ export default function SettingsMCP() {
                   <span className="text-gray-600 text-sm">·</span>
                   <details className="inline">
                     <summary className="text-sm text-teal-400 hover:text-teal-300 cursor-pointer">Show example</summary>
-                    <pre className="mt-2 text-sm text-gray-300 bg-gray-900 border border-gray-800 rounded p-3 overflow-x-auto whitespace-pre font-mono">
+                    <pre className="mt-2 text-sm text-gray-300 bg-black border border-gray-800 rounded p-3 overflow-x-auto whitespace-pre font-mono">
                       {serverEntry}
                     </pre>
                     <p className="mt-1 text-sm text-gray-500">Paste inside the <span className="font-mono font-semibold">mcpServers</span> block, after the last existing entry.</p>
@@ -548,7 +529,7 @@ export default function SettingsMCP() {
                 <p className="text-base font-semibold text-gray-200">Claude Code</p>
               </div>
 
-              <div className="rounded bg-gray-900 border border-gray-800 p-3 overflow-x-auto">
+              <div className="rounded bg-black border border-gray-800 p-3 overflow-x-auto">
                 <pre className="text-sm text-gray-300 font-mono whitespace-pre">{cliCommand}</pre>
               </div>
               <div className="flex items-center justify-end gap-1.5">
@@ -566,7 +547,7 @@ export default function SettingsMCP() {
                 <p className="text-base font-semibold text-gray-200">Gemini CLI</p>
               </div>
 
-              <div className="rounded bg-gray-900 border border-gray-800 p-3 overflow-x-auto">
+              <div className="rounded bg-black border border-gray-800 p-3 overflow-x-auto">
                 <pre className="text-sm text-gray-300 font-mono whitespace-pre">{geminiCommand}</pre>
               </div>
               <div className="flex items-center justify-end gap-1.5">
@@ -594,11 +575,16 @@ export default function SettingsMCP() {
         </h2>
         <div className="rounded-lg border border-gray-700 bg-gray-950 p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">
-              {auditLoaded
-                ? `Showing latest ${auditEntries.length} of ${auditTotal}`
-                : 'Audit log loads on demand'}
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-gray-500">
+                {auditLoaded
+                  ? `Showing latest ${auditEntries.length} of ${auditTotal}`
+                  : 'Audit log loads on demand'}
+              </p>
+              {auditStatus?.type === 'error' && (
+                <span className="text-sm text-red-400">{auditStatus.text}</span>
+              )}
+            </div>
             <button
               onClick={loadAudit}
               disabled={auditLoading}
@@ -619,17 +605,17 @@ export default function SettingsMCP() {
           {auditLoaded && (
             <div className="space-y-2">
               {auditEntries.map(entry => (
-                <details key={entry.id} className="border border-gray-800 rounded bg-gray-900/60 px-3 py-2">
+                <details key={entry.id} className="border border-gray-800 rounded bg-black/60 px-3 py-2">
                   <summary className="cursor-pointer list-none">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-base text-gray-200 font-medium truncate">
                           {entry.tool_name}
                           {entry.scope && (
-                            <span className="text-xs text-gray-500 font-mono ml-2">{entry.scope}</span>
+                            <span className="text-sm text-gray-500 font-mono ml-2">{entry.scope}</span>
                           )}
                         </p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-sm text-gray-500">
                           {entry.created_at ? new Date(entry.created_at).toLocaleString() : 'unknown time'}
                           {entry.token_name && ` · ${entry.token_name}`}
                           {entry.token_prefix && ` (${entry.token_prefix}…)`}
@@ -662,47 +648,12 @@ export default function SettingsMCP() {
         </div>
       </section>
 
-      {showTokenModal && createdToken && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={closeTokenModal}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="mcp-token-title"
-            className="bg-gray-950 border border-gray-700 rounded-lg shadow-xl max-w-lg w-full mx-4"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-              <span id="mcp-token-title" className="text-sm font-semibold text-gray-200">
-                MCP Token Created
-              </span>
-              <button onClick={closeTokenModal} className="text-gray-400 hover:text-gray-200 text-lg leading-none">
-                &times;
-              </button>
-            </div>
-            <div className="px-4 py-4 space-y-3">
-              <p className="text-sm text-gray-400">
-                This token is shown only once. Copy it now and store it securely.
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={createdToken}
-                  className="flex-1 px-3 py-2 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200 font-mono"
-                />
-                <CopyButton text={createdToken} color={TEAL} />
-              </div>
-            </div>
-            <div className="px-4 py-3 border-t border-gray-700 flex justify-end">
-              <button
-                onClick={closeTokenModal}
-                className="px-3 py-1.5 rounded text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white transition-colors"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
+      {showTokenModal && (
+        <TokenCreatedModal
+          token={createdToken}
+          title="MCP Token Created"
+          onClose={closeTokenModal}
+        />
       )}
     </div>
   )

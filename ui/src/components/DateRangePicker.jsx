@@ -138,8 +138,8 @@ export default function DateRangePicker({ isActive, timeFrom, timeTo, onApply, o
         onClick={() => { if (!open) returnFocusRef.current = document.activeElement; setOpen(!open) }}
         className={`px-2 py-1 rounded text-xs font-medium transition-all ${
           isActive
-            ? 'bg-gray-700 text-white'
-            : 'text-gray-400 hover:text-gray-300'
+            ? 'bg-black text-white border border-gray-600'
+            : 'text-gray-400 hover:text-gray-300 border border-transparent'
         }`}
       >
         Custom
@@ -175,7 +175,7 @@ export default function DateRangePicker({ isActive, timeFrom, timeTo, onApply, o
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="bg-gray-800/50 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-gray-500"
+                className="bg-black border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
               />
               <label htmlFor="drp-end-time" className="text-xs text-gray-500">To</label>
               <input
@@ -183,7 +183,7 @@ export default function DateRangePicker({ isActive, timeFrom, timeTo, onApply, o
                 type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="bg-gray-800/50 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-gray-500"
+                className="bg-black border border-gray-700 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
               />
             </div>
             <div className="flex gap-2 mt-2">

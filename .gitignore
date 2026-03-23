@@ -59,3 +59,11 @@ CLAUDE.md
 pull_logs.py
 pull_logs_state.json
 CLAUDE-ui-guidelines.md
+pentest-results/
+receiver/.pentest-deps/
+receiver/uli_pentest/
+receiver/pentest_cleanup.py
+# Pentest harness test files — depend on uli_pentest/ which is not tracked
+receiver/tests/test_uli_pentest_helpers.py
+receiver/tests/test_config_import_types.py
+docs/pentest-agent-harness.md

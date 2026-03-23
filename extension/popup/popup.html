@@ -11,6 +11,10 @@
     <div class="header">
       <img src="../icons/icon-32.png" alt="" class="logo">
       <h1>UniFi Insights Plus</h1>
+      <span class="header-status" id="header-status">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Checking...</span>
+      </span>
     </div>
 
     <!-- Setup View -->
@@ -25,12 +29,36 @@
       <p id="setup-error" class="error" hidden aria-live="polite"></p>
     </div>
 
+    <!-- Auth Gate View: shown when server requires auth but no token is set -->
+    <div id="auth-gate-view" class="view" hidden>
+      <div class="status-row">
+        <span class="status-dot disconnected"></span>
+        <span>API Key Required</span>
+      </div>
+
+      <div class="section-card">
+        <div class="section-header">
+          <span class="section-title">API Token</span>
+          <span class="status-pill pending">Required</span>
+        </div>
+        <div id="auth-gate-token-edit">
+          <div class="server-row compact">
+            <input type="password" id="auth-gate-token-input" placeholder="Paste API token" spellcheck="false" autocomplete="off" aria-label="API Token">
+            <button type="button" id="auth-gate-save-btn" class="btn-sm">Save</button>
+          </div>
+          <!-- Hint text duplicated in connected-view token-edit — intentional: these
+               are separate HTML views (auth-gate vs connected), not a DRY violation. -->
+          <p class="hint small">Create your API token from Settings &gt; API<br>Client Type: Extension</p>
+        </div>
+        <p id="auth-gate-error" class="error" hidden aria-live="polite"></p>
+      </div>
+
+      <button type="button" id="auth-gate-disconnect-btn" class="btn-reset">Reset Extension</button>
+      <div id="auth-gate-version" class="version-footer" hidden></div>
+    </div>
+
     <!-- Connected View -->
     <div id="connected-view" class="view" hidden>
-      <div class="status-row">
-        <span class="status-dot" id="status-dot"></span>
-        <span id="status-text">Checking...</span>
-      </div>
 
       <div id="traffic-overview" class="traffic-overview" hidden>
         <div class="to-header">
@@ -87,6 +115,31 @@
         </div>
 
         <p id="controller-error" class="error" hidden aria-live="polite"></p>
+      </div>
+
+      <!-- API Token Section -->
+      <div class="section-card">
+        <div class="section-header">
+          <span class="section-title">API Token</span>
+          <span id="token-status" class="status-pill" hidden></span>
+        </div>
+        <div id="token-display" class="controller-display" hidden>
+          <span id="token-preview" class="controller-url"></span>
+          <button type="button" id="edit-token-btn" class="btn-icon" title="Edit">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+          </button>
+          <button type="button" id="clear-token-btn" class="btn-icon" title="Remove token">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div id="token-edit" hidden>
+          <div class="server-row compact">
+            <input type="password" id="token-input" placeholder="Paste API token" spellcheck="false" autocomplete="off" aria-label="API Token">
+            <button type="button" id="save-token-btn" class="btn-sm">Save</button>
+          </div>
+          <p class="hint small">Create your API token from Settings &gt; API<br>Client Type: Extension</p>
+        </div>
+        <p id="token-error" class="error" hidden aria-live="polite"></p>
       </div>
 
       <!-- Feature toggles -->

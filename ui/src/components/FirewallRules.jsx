@@ -271,7 +271,7 @@ function ZoneMatrix({ zones, cells, selectedCell, onSelectCell, totalPolicyCount
                   className={`block w-full px-2.5 py-1.5 text-left font-medium whitespace-nowrap transition-colors rounded-tl-lg ${
                     allSelected
                       ? 'border-chase text-teal-400'
-                      : 'bg-black text-[#cbced2] hover:bg-gray-900 border-2 border-transparent'
+                      : 'bg-black text-[#cbced2] hover:bg-gray-800/30 border-2 border-transparent'
                   }`}
                 >
                   All Policies ({totalPolicyCount})

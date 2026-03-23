@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { fetchZoneMatrix } from '../api'
+import { readCache, writeCache } from '../lib/sessionCache'
 import { formatNumber, ACTION_STYLES } from '../utils'
 import FullscreenToggle from './FullscreenToggle'
 import InfoTooltip from './InfoTooltip'
@@ -75,13 +76,23 @@ export default function ZoneMatrix({ filters, refreshKey, onCellClick, activeCel
     return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
   })
   const theme = themeMode === 'light' ? THEMES.light : THEMES.dark
+  const refreshKeyRef = useRef(refreshKey)
 
   useEffect(() => {
+    const disc = [filters.time_range, filters.time_from, filters.time_to, filters.rule_action, filters.direction].join('|')
+    const cached = readCache('zone-matrix', disc)
+    if (cached && refreshKey === refreshKeyRef.current) {
+      setData(cached)
+      setLoading(false)
+      return
+    }
+    refreshKeyRef.current = refreshKey
+
     let cancelled = false
     setLoading(true)
     setError(null)
     fetchZoneMatrix(filters)
-      .then(d => { if (!cancelled) setData(d) })
+      .then(d => { if (!cancelled) { setData(d); writeCache('zone-matrix', disc, d) } })
       .catch(err => { if (!cancelled) setError(err.message) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }

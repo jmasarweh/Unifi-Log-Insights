@@ -1,6 +1,6 @@
 import React from 'react'
 import {
-  formatTime, FlagIcon, countryName, getInterfaceName, formatServiceName, resolveIpSublines,
+  formatTime, formatDateShort, FlagIcon, countryName, getInterfaceName, formatServiceName, resolveIpSublines,
   normalizeRuleDesc, LOG_TYPE_STYLES, ACTION_STYLES,
   DIRECTION_ICONS, DIRECTION_COLORS, decodeThreatCategories,
 } from '../utils'
@@ -109,8 +109,9 @@ function LogRow({ log, isExpanded, detailedLog, onToggle, hiddenColumns, colCoun
         } ${highlightBlock ? 'bg-red-950/10' : ''}`}
       >
         {/* Time */}
-        <td className="px-3 py-1.5 text-[13px] text-gray-400 whitespace-nowrap font-light">
-          {formatTime(log.timestamp)}
+        <td className="px-3 py-1.5 whitespace-nowrap">
+          <div className="text-[13px] text-gray-400 font-light">{formatTime(log.timestamp)}</div>
+          <div className="text-[11px] font-bold text-white">{formatDateShort(log.timestamp)}</div>
         </td>
 
         {/* Type — desktop only */}
@@ -315,7 +316,7 @@ export default function LogTable({ logs, loading, expandedId, detailedLog, onTog
           ) : logs.length === 0 ? (
             <tr>
               <td colSpan={colCount} className="text-center py-12 text-gray-500 text-sm">
-                No logs match current filters
+                No logs match current filters. Try a wider time range or check that syslog logging is enabled for this traffic on your gateway.
               </td>
             </tr>
           ) : (

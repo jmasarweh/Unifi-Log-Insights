@@ -19,12 +19,21 @@ export function FlagIcon({ code, size = 14 }) {
 export function formatTime(ts) {
   if (!ts) return '—'
   const d = new Date(ts)
+  if (isNaN(d.getTime())) return '—'
   return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+export function formatDateShort(ts) {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
 export function formatDateTime(ts) {
   if (!ts) return '—'
   const d = new Date(ts)
+  if (isNaN(d.getTime())) return '—'
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' ' +
     d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -149,7 +158,8 @@ const BRIDGE_COLOR_MAP = {
 
 export async function loadInterfaceLabels(prefetchedConfig) {
   try {
-    const config = prefetchedConfig || await (await fetch('/api/config')).json()
+    const { fetchConfig } = await import('./api')
+    const config = prefetchedConfig || await fetchConfig()
     INTERFACE_LABELS = config.interface_labels || {}
     WAN_INTERFACES = new Set(config.wan_interfaces || [])
   } catch (err) {

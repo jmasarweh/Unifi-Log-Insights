@@ -400,3 +400,23 @@ def validate_view_filters(filters: dict) -> str | None:
         return f"timeRange must be one of {sorted(VALID_TIME_RANGES)} or null"
 
     return None
+
+
+# ── CSV export sanitization ─────────────────────────────────────────────────
+
+_CSV_FORMULA_PREFIXES = ('=', '+', '@', ';', '\t', '\r', '\n', '\0')
+
+
+def sanitize_csv_cell(value: str) -> str:
+    """Neutralize spreadsheet formula injection by prepending a single quote."""
+    if not value:
+        return value
+    ch = value[0]
+    if ch in _CSV_FORMULA_PREFIXES:
+        return "'" + value
+    # '-' is only dangerous when NOT followed by a digit or decimal point
+    if ch == '-':
+        rest = value[1:]
+        if not rest or not (rest[0].isdigit() or (rest[0] == '.' and len(rest) > 1 and rest[1].isdigit())):
+            return "'" + value
+    return value

@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { fetchStats } from '../api'
+import { fetchStatsOverview, fetchStatsCharts, fetchStatsTables } from '../api'
 import { formatNumber, FlagIcon, countryName, decodeThreatCategories, LOG_TYPE_STYLES, ACTION_STYLES, formatServiceName, DIRECTION_ICONS, DIRECTION_COLORS } from '../utils'
 import { getThreatLevel } from '../lib/threatPresentation'
+import { readCache, writeCache, CACHE_TTL_MS } from '../lib/sessionCache'
 import NetworkBadge from './NetworkBadge'
 import useTimeRange from '../hooks/useTimeRange'
 
@@ -136,11 +137,12 @@ function isSparseData(data, timeRange) {
 
 function LogsOverTimeChart({ data, timeRange, loading }) {
   if (!data || data.length === 0) {
-    return <div className="text-gray-400 text-xs text-center py-8">{loading ? 'Loading...' : 'No data yet'}</div>
+    return <div className="text-gray-400 text-xs text-center py-8">{loading ? 'Loading...' : 'No data for the selected time filter'}</div>
   }
   if (isSparseData(data, timeRange)) {
     if (loading) return <div className="text-gray-400 text-xs text-center py-8">Loading...</div>
-    return <div className="text-gray-500 text-xs text-center py-8">Not enough data to display a chart. Try selecting a shorter time range.</div>
+    const hint = timeRange === '1h' ? '' : ' Try selecting a shorter time range.'
+    return <div className="text-gray-500 text-xs text-center py-8">Not enough data to display a chart.{hint}</div>
   }
   return (
     <ResponsiveContainer width="100%" height={140}>
@@ -166,11 +168,12 @@ function LogsOverTimeChart({ data, timeRange, loading }) {
 
 function TrafficByActionChart({ data, timeRange, loading }) {
   if (!data || data.length === 0) {
-    return <div className="text-gray-400 text-xs text-center py-8">{loading ? 'Loading...' : 'No data yet'}</div>
+    return <div className="text-gray-400 text-xs text-center py-8">{loading ? 'Loading...' : 'No data for the selected time filter'}</div>
   }
   if (isSparseData(data, timeRange)) {
     if (loading) return <div className="text-gray-400 text-xs text-center py-8">Loading...</div>
-    return <div className="text-gray-500 text-xs text-center py-8">Not enough data to display a chart. Try selecting a shorter time range.</div>
+    const hint = timeRange === '1h' ? '' : ' Try selecting a shorter time range.'
+    return <div className="text-gray-500 text-xs text-center py-8">Not enough data to display a chart.{hint}</div>
   }
   return (
     <ResponsiveContainer width="100%" height={220}>
@@ -221,7 +224,7 @@ function TopList({ title, items, renderItem }) {
     <div className="border border-gray-800 rounded-lg p-4">
       <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">{title}</div>
       {items.length === 0 ? (
-        <div className="text-gray-400 text-xs py-4 text-center">No data</div>
+        <div className="text-gray-400 text-xs py-4 text-center">No data for the selected time filter</div>
       ) : (
         <div className="space-y-2">
           {items.map((item, i) => renderItem(item, i))}
@@ -231,38 +234,89 @@ function TopList({ title, items, renderItem }) {
   )
 }
 
+// Cache prefix — readCache/writeCache imported from lib/sessionCache
+const CACHE_PREFIX = 'dashboard'
+
 export default function Dashboard({ maxFilterDays }) {
   const [timeRange, setTimeRange, visibleRanges] = useTimeRange(maxFilterDays)
-  const [stats, setStats] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({})
+  const [tierStatus, setTierStatus] = useState({ overview: 'loading', charts: 'loading', tables: 'loading' })
+  const requestEpochRef = useRef(0)
 
+  const loadTiers = useCallback((tr, isRefresh = false) => {
+    const epoch = ++requestEpochRef.current
+
+    // Read cache first — render immediately if fresh
+    const cachedOverview = readCache(CACHE_PREFIX, `overview:${tr}`)
+    const cachedCharts = readCache(CACHE_PREFIX, `charts:${tr}`)
+    const cachedTables = readCache(CACHE_PREFIX, `tables:${tr}`)
+
+    if (!isRefresh) {
+      // Build initial stats from cache — no null reset, so cached data renders instantly
+      const initial = { ...(cachedOverview || {}), ...(cachedCharts || {}), ...(cachedTables || {}) }
+      setStats(Object.keys(initial).length > 0 ? initial : {})
+
+      setTierStatus({
+        overview: cachedOverview ? 'fromCache' : 'loading',
+        charts: cachedCharts ? 'fromCache' : 'loading',
+        tables: cachedTables ? 'fromCache' : 'loading',
+      })
+    }
+
+    const mergeTier = (tier, data) => {
+      if (requestEpochRef.current !== epoch) return // stale response guard
+      writeCache(CACHE_PREFIX, `${tier}:${tr}`, data)
+      setStats(prev => ({ ...prev, ...data }))
+      setTierStatus(prev => ({ ...prev, [tier]: 'loaded' }))
+    }
+
+    const failTier = (tier) => {
+      if (requestEpochRef.current !== epoch) return
+      setTierStatus(prev => {
+        if (prev[tier] === 'loaded' || prev[tier] === 'fromCache') {
+          // Data exists but refresh failed — mark stale so UI can warn
+          return isRefresh ? { ...prev, [tier]: 'stale' } : prev
+        }
+        return { ...prev, [tier]: 'error' }
+      })
+    }
+
+    // Fire all three tiers in parallel
+    if (!cachedOverview || isRefresh) {
+      fetchStatsOverview(tr).then(d => mergeTier('overview', d)).catch(() => failTier('overview'))
+    }
+    if (!cachedCharts || isRefresh) {
+      fetchStatsCharts(tr).then(d => mergeTier('charts', d)).catch(() => failTier('charts'))
+    }
+    if (!cachedTables || isRefresh) {
+      fetchStatsTables(tr).then(d => mergeTier('tables', d)).catch(() => failTier('tables'))
+    }
+  }, [])
+
+  // Primary load on mount / time-range change
   useEffect(() => {
-    let mounted = true
-    setLoading(true)
-    fetchStats(timeRange)
-      .then(data => { if (mounted) setStats(data) })
-      .catch(err => console.error('Failed to fetch stats:', err))
-      .finally(() => { if (mounted) setLoading(false) })
-    return () => { mounted = false }
-  }, [timeRange])
+    loadTiers(timeRange)
+  }, [timeRange, loadTiers])
 
-  // Auto-refresh every 30s
+  // Auto-refresh every 10 minutes (only when visible)
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchStats(timeRange)
-        .then(setStats)
-        .catch(() => {})
-    }, 30000)
+      if (document.visibilityState === 'visible') {
+        loadTiers(timeRange, true)
+      }
+    }, CACHE_TTL_MS)
     return () => clearInterval(interval)
-  }, [timeRange])
+  }, [timeRange, loadTiers])
 
-  if (loading && !stats) {
+  const loading = tierStatus.overview === 'loading' || tierStatus.charts === 'loading' || tierStatus.tables === 'loading'
+  const hasSomeData = Object.keys(stats).length > 0
+  const allFailed = tierStatus.overview === 'error' && tierStatus.charts === 'error' && tierStatus.tables === 'error'
+
+  if (!hasSomeData && !allFailed) {
     return <DashboardSkeleton />
   }
 
-  if (!stats) return null
-
-  const maxBlocked = stats.top_blocked_ips.length > 0
+  const maxBlocked = (stats.top_blocked_ips || []).length > 0
     ? Math.max(...stats.top_blocked_ips.map(i => i.count))
     : 0
   const maxBlockedInternal = (stats.top_blocked_internal_ips || []).length > 0
@@ -275,8 +329,25 @@ export default function Dashboard({ maxFilterDays }) {
     ? Math.max(...stats.top_active_internal_ips.map(i => i.count))
     : 0
 
+  const anyStale = tierStatus.overview === 'stale' || tierStatus.charts === 'stale' || tierStatus.tables === 'stale'
+
   return (
     <div className="pt-2.5 px-4 pb-4 space-y-4 overflow-auto max-h-full">
+      {/* All tiers failed — show error instead of infinite skeleton */}
+      {allFailed && !hasSomeData && (
+        <div className="border border-red-800/50 rounded-lg p-6 text-center">
+          <div className="text-red-400 text-sm font-medium mb-1">Failed to load dashboard data</div>
+          <div className="text-gray-500 text-xs">Check that the backend is running and try refreshing the page.</div>
+        </div>
+      )}
+
+      {/* Stale data warning — background refresh failed */}
+      {anyStale && (
+        <div className="border border-amber-800/40 bg-amber-950/20 rounded px-3 py-1.5 text-xs text-amber-400">
+          Some data may be outdated — background refresh failed.
+        </div>
+      )}
+
       {/* Time range selector */}
       <div className="flex items-center gap-1 flex-wrap">
         {visibleRanges.map(tr => (
@@ -284,7 +355,7 @@ export default function Dashboard({ maxFilterDays }) {
             key={tr}
             onClick={() => setTimeRange(tr)}
             className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-              timeRange === tr ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
+              timeRange === tr ? 'bg-black text-white border border-gray-600' : 'text-gray-400 hover:text-gray-300 border border-transparent'
             }`}
           >
             {tr}
@@ -293,78 +364,114 @@ export default function Dashboard({ maxFilterDays }) {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {/* Traffic Overview */}
-        <div className="border border-gray-800 rounded-lg p-4">
-          <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Traffic Overview</div>
-          <div className="flex items-baseline gap-2 mb-3">
-            <span className="text-2xl font-semibold text-white">{formatNumber(stats.total)}</span>
-            <span className="text-xs text-gray-500">total logs</span>
+      {stats.total != null ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-[fadeIn_0.3s_ease-out]">
+          {/* Traffic Overview */}
+          <div className="border border-gray-800 rounded-lg p-4 min-h-[8rem]">
+            <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Traffic Overview</div>
+            <div className="flex items-baseline gap-2 mb-3">
+              <span className="text-2xl font-semibold text-white">{formatNumber(stats.total)}</span>
+              <span className="text-xs text-gray-500">total logs</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 mb-3">
+              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold uppercase border ${ACTION_STYLES.allow}`}>
+                Allowed {formatNumber(stats.allowed || 0)}
+              </span>
+              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold uppercase border ${ACTION_STYLES.block}`}>
+                Blocked {formatNumber(stats.blocked || 0)}
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold uppercase border bg-orange-500/15 text-orange-400 border-orange-500/30">
+                Threats {formatNumber(stats.threats || 0)}
+              </span>
+            </div>
+            {stats.by_direction && Object.keys(stats.by_direction).length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-3 border-t border-gray-800/50">
+                {['inbound', 'outbound', 'inter_vlan', 'nat', 'local', 'vpn']
+                  .filter(dir => stats.by_direction[dir] != null)
+                  .map(dir => [dir, stats.by_direction[dir]])
+                  .map(([dir, count]) => (
+                  <span key={dir} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-800/50 text-xs font-medium text-gray-300">
+                    <span className={DIRECTION_COLORS[dir] || 'text-gray-300'}>{DIRECTION_ICONS[dir]}</span>
+                    <span className="uppercase">{dir === 'inter_vlan' ? 'VLAN' : dir}</span>
+                    <span className="text-gray-400 font-semibold">{formatNumber(count)}</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 mb-3">
-            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold uppercase border ${ACTION_STYLES.allow}`}>
-              Allowed {formatNumber(stats.allowed || 0)}
-            </span>
-            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold uppercase border ${ACTION_STYLES.block}`}>
-              Blocked {formatNumber(stats.blocked)}
-            </span>
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold uppercase border bg-orange-500/15 text-orange-400 border-orange-500/30">
-              Threats {formatNumber(stats.threats)}
-            </span>
-          </div>
-          {Object.keys(stats.by_direction).length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 pt-3 border-t border-gray-800/50">
-              {Object.entries(stats.by_direction).map(([dir, count]) => (
-                <span key={dir} className={`inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-800/50 text-xs font-medium ${DIRECTION_COLORS[dir] || 'text-gray-300'}`}>
-                  <span>{DIRECTION_ICONS[dir]}</span>
-                  <span className="uppercase">{dir === 'inter_vlan' ? 'VLAN' : dir}</span>
-                  <span className="text-gray-400 font-semibold">{formatNumber(count)}</span>
+
+          {/* Log Types */}
+          <div className="border border-gray-800 rounded-lg p-4 min-h-[8rem]">
+            <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Log Types</div>
+            <div className="flex flex-wrap gap-1.5">
+              {stats.by_type && Object.entries(stats.by_type)
+                .sort(([a], [b]) => {
+                  const order = ['firewall', 'dns', 'dhcp', 'wifi', 'system']
+                  return (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b))
+                })
+                .map(([t, c]) => (
+                <span key={t} className={`inline-block px-2 py-1 rounded text-xs font-semibold uppercase border ${LOG_TYPE_STYLES[t] || LOG_TYPE_STYLES.system}`}>
+                  {t} {formatNumber(c)}
                 </span>
               ))}
             </div>
-          )}
-        </div>
-
-        {/* Log Types */}
-        <div className="border border-gray-800 rounded-lg p-4">
-          <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Log Types</div>
-          <div className="flex flex-wrap gap-1.5">
-            {Object.entries(stats.by_type).map(([t, c]) => (
-              <span key={t} className={`inline-block px-2 py-1 rounded text-xs font-semibold uppercase border ${LOG_TYPE_STYLES[t] || LOG_TYPE_STYLES.system}`}>
-                {t} {formatNumber(c)}
-              </span>
-            ))}
           </div>
         </div>
-      </div>
+      ) : tierStatus.overview === 'error' ? (
+        <div className="border border-red-800/50 rounded-lg p-4 text-center text-xs text-red-400">Failed to load overview data</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-pulse">
+          <div className="border border-gray-800 rounded-lg p-4 h-32" />
+          <div className="border border-gray-800 rounded-lg p-4 h-32" />
+        </div>
+      )}
 
       {/* Logs over time chart */}
-      <div className="border border-gray-800 rounded-lg p-4">
-        <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Traffic Over Time</div>
-        <LogsOverTimeChart data={stats.logs_over_time || stats.logs_per_hour} timeRange={timeRange} loading={loading} />
-      </div>
+      {stats.logs_over_time || stats.logs_per_hour ? (
+        <div className="border border-gray-800 rounded-lg p-4 min-h-[10rem] animate-[fadeIn_0.3s_ease-out]">
+          <div className="text-xs text-gray-400 uppercase tracking-wider mb-3">Traffic Over Time</div>
+          <LogsOverTimeChart data={stats.logs_over_time || stats.logs_per_hour} timeRange={timeRange} loading={tierStatus.charts === 'loading'} />
+        </div>
+      ) : tierStatus.charts === 'error' ? (
+        <div className="border border-red-800/50 rounded-lg p-4 text-center text-xs text-red-400">Failed to load chart data</div>
+      ) : tierStatus.charts === 'loading' ? (
+        <div className="border border-gray-800 rounded-lg p-4 h-40 animate-pulse" />
+      ) : null}
 
       {/* Traffic by action chart */}
-      <div className="border border-gray-800 rounded-lg p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-xs text-gray-400 uppercase tracking-wider">Traffic by Action</div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="flex items-center gap-1 text-xs text-green-400">
-              <span className="w-2 h-2 rounded-full bg-green-500" /> Allowed
-            </span>
-            <span className="flex items-center gap-1 text-xs text-red-400">
-              <span className="w-2 h-2 rounded-full bg-red-500" /> Blocked
-            </span>
-            <span className="flex items-center gap-1 text-xs text-amber-400">
-              <span className="w-2 h-2 rounded-full bg-amber-500" /> Redirect
-            </span>
+      {stats.traffic_by_action ? (
+        <div className="border border-gray-800 rounded-lg p-4 min-h-[13rem] animate-[fadeIn_0.3s_ease-out]">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs text-gray-400 uppercase tracking-wider">Traffic by Action</div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className="flex items-center gap-1 text-xs text-green-400">
+                <span className="w-2 h-2 rounded-full bg-green-500" /> Allowed
+              </span>
+              <span className="flex items-center gap-1 text-xs text-red-400">
+                <span className="w-2 h-2 rounded-full bg-red-500" /> Blocked
+              </span>
+              <span className="flex items-center gap-1 text-xs text-amber-400">
+                <span className="w-2 h-2 rounded-full bg-amber-500" /> Redirect
+              </span>
+            </div>
           </div>
+          <TrafficByActionChart data={stats.traffic_by_action} timeRange={timeRange} loading={tierStatus.charts === 'loading'} />
         </div>
-        <TrafficByActionChart data={stats.traffic_by_action} timeRange={timeRange} loading={loading} />
-      </div>
+      ) : tierStatus.charts === 'loading' ? (
+        <div className="border border-gray-800 rounded-lg p-4 h-52 animate-pulse" />
+      ) : null}
 
       {/* Top lists grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {tierStatus.tables === 'loading' && !stats.top_threat_ips ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-pulse">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="border border-gray-800 rounded-lg p-4 h-48" />
+          ))}
+        </div>
+      ) : tierStatus.tables === 'error' && !stats.top_threat_ips ? (
+        <div className="border border-red-800/50 rounded-lg p-4 text-center text-xs text-red-400">Failed to load table data</div>
+      ) : (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-[fadeIn_0.3s_ease-out]">
         <TopList
           title="Top Threat IPs"
           items={stats.top_threat_ips || []}
@@ -489,7 +596,7 @@ export default function Dashboard({ maxFilterDays }) {
           {(() => {
             const blocked = stats.top_blocked_countries || []
             const allowed = stats.top_allowed_countries || []
-            if (blocked.length === 0 && allowed.length === 0) return <div className="text-gray-400 text-xs py-4 text-center">No data</div>
+            if (blocked.length === 0 && allowed.length === 0) return <div className="text-gray-400 text-xs py-4 text-center">No data for the selected time filter</div>
             return (
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -558,6 +665,7 @@ export default function Dashboard({ maxFilterDays }) {
           )}
         />
       </div>
+      )}
     </div>
   )
 }

@@ -292,9 +292,9 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
                     onClick={() => !dirLocked && toggleDirection(dir)}
                     className={`px-2 py-1 rounded text-xs font-medium uppercase transition-all ${
                       dirLocked
-                        ? 'bg-gray-700 text-white opacity-40 cursor-not-allowed'
+                        ? 'bg-black text-white border border-gray-600 opacity-40 cursor-not-allowed'
                         : activeDirections.includes(dir)
-                          ? 'bg-gray-700 text-white'
+                          ? 'bg-black text-white border border-gray-600'
                           : 'text-gray-500 hover:text-gray-400'
                     }`}
                   >
@@ -309,7 +309,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
                     })}
                     className={`px-2 py-1 rounded text-xs font-medium uppercase transition-all ${
                       filters.vpn_only
-                        ? 'bg-gray-700 text-white'
+                        ? 'bg-black text-white border border-gray-600'
                         : 'text-gray-500 hover:text-gray-400'
                     }`}
                   >
@@ -324,9 +324,9 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
                 onClick={() => !dirLocked && toggleDirection(dir)}
                 className={`px-2 py-1 rounded text-xs font-medium uppercase transition-all ${
                   dirLocked
-                    ? 'bg-gray-700 text-white opacity-40 cursor-not-allowed'
+                    ? 'bg-black text-white border border-gray-600 opacity-40 cursor-not-allowed'
                     : activeDirections.includes(dir)
-                      ? 'bg-gray-700 text-white'
+                      ? 'bg-black text-white border border-gray-600'
                       : 'text-gray-500 hover:text-gray-400'
                 }`}
               >
@@ -345,7 +345,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
               onClick={() => wrappedOnChange({ ...filters, time_range: tr.value, time_from: null, time_to: null })}
               className={`px-2 py-1 rounded text-xs font-medium transition-all ${
                 filters.time_range === tr.value
-                  ? 'bg-gray-700 text-white'
+                  ? 'bg-black text-white border border-gray-600'
                   : 'text-gray-400 hover:text-gray-300'
               }`}
             >
@@ -376,7 +376,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
             title="Prefix with ! to exclude matching IPs"
             value={ipSearch}
             onChange={e => setIpSearch(e.target.value)}
-            className={`bg-gray-800/50 border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-gray-500 w-full sm:w-40 ${ipSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
+            className={`bg-black border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 w-full sm:w-40 ${ipSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
           />
           {ipSearch && (
             <button onClick={() => setIpSearch('')} className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-200 text-xs">✕</button>
@@ -389,7 +389,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
             title="Prefix with ! to exclude matching rules"
             value={ruleSearch}
             onChange={e => setRuleSearch(e.target.value)}
-            className={`bg-gray-800/50 border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-gray-500 w-full sm:w-40 ${ruleSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
+            className={`bg-black border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 w-full sm:w-40 ${ruleSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
           />
           {ruleSearch && (
             <button onClick={() => setRuleSearch('')} className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-200 text-xs">✕</button>
@@ -406,7 +406,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
             }}
             onFocus={() => setShowInterfaceDropdown(true)}
             onBlur={() => setTimeout(() => setShowInterfaceDropdown(false), 200)}
-            className="bg-gray-800/50 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-gray-500 w-full sm:w-40"
+            className="bg-black border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 w-full sm:w-40"
           />
           {selectedInterfaces.length > 0 && (
             <button
@@ -476,7 +476,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
             title="Prefix with ! to exclude this port"
             value={srcPortSearch}
             onChange={e => { const raw = e.target.value; const hasNeg = raw.startsWith('!'); const digits = raw.replace(/[^0-9]/g, ''); setSrcPortSearch(hasNeg ? '!' + digits : digits); }}
-            className={`bg-gray-800/50 border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-gray-500 w-full sm:w-24 ${srcPortSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
+            className={`bg-black border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 w-full sm:w-24 ${srcPortSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
           />
           {srcPortSearch && (
             <button onClick={() => setSrcPortSearch('')} className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-200 text-xs">✕</button>
@@ -489,7 +489,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
             title="Prefix with ! to exclude this port"
             value={dstPortSearch}
             onChange={e => { const raw = e.target.value; const hasNeg = raw.startsWith('!'); const digits = raw.replace(/[^0-9]/g, ''); setDstPortSearch(hasNeg ? '!' + digits : digits); }}
-            className={`bg-gray-800/50 border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-gray-500 w-full sm:w-24 ${dstPortSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
+            className={`bg-black border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 w-full sm:w-24 ${dstPortSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
           />
           {dstPortSearch && (
             <button onClick={() => setDstPortSearch('')} className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-200 text-xs">✕</button>
@@ -506,7 +506,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
             }}
             onFocus={() => setShowProtocolDropdown(true)}
             onBlur={() => setTimeout(() => setShowProtocolDropdown(false), 200)}
-            className="bg-gray-800/50 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-gray-500 w-full sm:w-32"
+            className="bg-black border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 w-full sm:w-32"
           />
           {selectedProtocols.length > 0 && (
             <button
@@ -558,7 +558,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
             }}
             onFocus={() => setShowServiceDropdown(true)}
             onBlur={() => setTimeout(() => setShowServiceDropdown(false), 200)}
-            className="bg-gray-800/50 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-gray-500 w-full sm:w-40"
+            className="bg-black border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 w-full sm:w-40"
           />
           {selectedServices.length > 0 && (
             <button
@@ -607,7 +607,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
             title="Comma-separated codes (e.g. US,CN). Prefix with ! to exclude all listed countries."
             value={countrySearch}
             onChange={e => setCountrySearch(e.target.value)}
-            className={`bg-gray-800/50 border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-gray-500 w-full sm:w-28 ${countrySearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
+            className={`bg-black border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 w-full sm:w-28 ${countrySearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
           />
           {countrySearch && (
             <button onClick={() => setCountrySearch('')} className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-200 text-xs">✕</button>
@@ -620,7 +620,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
             title="Prefix with ! to exclude matching ASNs"
             value={asnSearch}
             onChange={e => setAsnSearch(e.target.value)}
-            className={`bg-gray-800/50 border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-gray-500 w-full sm:w-36 ${asnSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
+            className={`bg-black border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 w-full sm:w-36 ${asnSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
           />
           {asnSearch && (
             <button onClick={() => setAsnSearch('')} className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-200 text-xs">✕</button>
@@ -633,7 +633,7 @@ export default function FilterBar({ filters, onChange, maxFilterDays, prefetched
             title="Prefix with ! to exclude matching log entries"
             value={textSearch}
             onChange={e => setTextSearch(e.target.value)}
-            className={`w-full bg-gray-800/50 border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-gray-500 ${textSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
+            className={`w-full bg-black border rounded px-3 py-1.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 ${textSearch.startsWith('!') ? 'border-amber-400/60' : 'border-gray-700'}`}
           />
           {textSearch && (
             <button onClick={() => setTextSearch('')} className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-200 text-xs">✕</button>

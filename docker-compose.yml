@@ -15,7 +15,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data # Not needed when using external DB
       - ./maxmind:/app/maxmind
-    # If you add real credentials here, do not commit this file, and 
+    # If you add real credentials here, do not commit this file, and
     # instead use .env file instead for credentials/passwords
     #env_file:
     #- .env

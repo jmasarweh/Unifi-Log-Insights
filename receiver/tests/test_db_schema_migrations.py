@@ -78,11 +78,20 @@ def _make_database(monkeypatch, cursors, logger=None):
 
 
 def _validation_cursor():
-    """Validation cursor with truthy responses for table/function/index checks."""
+    """Validation cursor with truthy responses for table/function/index checks.
 
+    Order: logs table, cleanup_old_logs function, idx_logs_timestamp,
+    threat_backfill_queue table, ip_threats.last_seen_at column,
+    ip_threats.last_seen_at column_default,
+    idx_logs_fw_block_null_threat_src index.
+    """
     return FakeCursor(fetches=[
         (1,),
         ('public.cleanup_old_logs(integer,integer)',),
+        (1,),
+        (1,),
+        (1,),
+        ("now()",),
         (1,),
     ])
 
@@ -143,6 +152,35 @@ def test_ensure_schema_skips_known_pg_type_race(monkeypatch):
         "Schema type already exists, skipping: %s",
         'duplicate key value violates unique constraint "pg_type_typname_nsp_index"',
     )
+
+
+def test_ensure_schema_exits_when_last_seen_at_has_no_default(monkeypatch):
+    """Boot must abort if ip_threats.last_seen_at exists but has no DEFAULT.
+
+    This catches the InsufficientPrivilege edge case where ALTER COLUMN
+    SET DEFAULT is silently skipped, leaving bulk_upsert_threats() inserting
+    NULLs into last_seen_at.
+    """
+    validation_cursor = FakeCursor(fetches=[
+        (1,),                                                  # logs table
+        ('public.cleanup_old_logs(integer,integer)',),          # function
+        (1,),                                                  # idx_logs_timestamp
+        (1,),                                                  # threat_backfill_queue
+        (1,),                                                  # last_seen_at column exists
+        (None,),                                               # column_default is NULL
+    ])
+    migration_cursor = FakeCursor()
+    database, logger = _make_database(
+        monkeypatch,
+        [migration_cursor, validation_cursor],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        database._ensure_schema()
+
+    assert exc.value.code == 1
+    logger.critical.assert_called_once()
+    assert "no DEFAULT" in logger.critical.call_args[0][0]
 
 
 def test_ensure_schema_exits_on_unrelated_unique_violation(monkeypatch):

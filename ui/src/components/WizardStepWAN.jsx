@@ -263,7 +263,7 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
               onChange={(e) => { setManualInput(e.target.value); if (manualError) setManualError('') }}
               onKeyDown={(e) => e.key === 'Enter' && handleAddManual()}
               placeholder="e.g., eth5, eth4.10, wan0, enp3s0"
-              className="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              className="flex-1 px-4 py-2 bg-black border border-gray-700 rounded-lg text-sm font-mono text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
             />
             <button
               onClick={handleAddManual}
@@ -325,7 +325,7 @@ export default function WizardStepWAN({ selected, onSelect, interfaceLabels, onU
                   value={interfaceLabels[iface] || ''}
                   onChange={(e) => handleWanLabelChange(iface, e.target.value)}
                   placeholder={selected.length === 1 ? 'e.g., WAN' : `e.g., WAN ${idx + 1}`}
-                  className="flex-1 max-w-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  className="flex-1 max-w-xs px-3 py-1.5 bg-black border border-gray-700 rounded text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
                 />
               </div>
             ))}

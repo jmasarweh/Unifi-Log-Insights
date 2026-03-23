@@ -80,7 +80,7 @@ export default function ReleaseNotesModal({ latestRelease, onClose, currentVersi
                     const rel = allReleases.find(r => r.tag === e.target.value)
                     if (rel) setSelectedRelease(rel.tag === latestRelease.tag ? null : rel)
                   }}
-                  className="px-2 py-1 bg-gray-900 border border-gray-600 rounded text-sm text-gray-300 focus:border-teal-500 focus:outline-none"
+                  className="px-2 py-1 bg-black border border-gray-600 rounded text-sm text-gray-300 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                 >
                   {allReleases.map(r => (
                     <option key={r.tag} value={r.tag}>

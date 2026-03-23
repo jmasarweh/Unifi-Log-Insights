@@ -29,6 +29,11 @@ body {
   background-color: #000;
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* Prevent browser autofill from overriding dark input backgrounds */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
@@ -541,6 +546,8 @@ thead tr { box-shadow: inset 0 -1px 0 var(--thead-border, #1f2937); }
    this [data-theme] selector; without it the dark background leaks through
    in light mode on the firewall rules container. */
 [data-theme="light"] .bg-black { background-color: #f3f4f6 !important; }
+[data-theme="light"] .bg-black\/50 { background-color: #e5e7eb !important; }
+[data-theme="light"] .bg-black\/60 { background-color: rgba(243,244,246,.6) !important; }
 [data-theme="light"] .text-\[\#cbced2\] { color: #374151; }
 [data-theme="light"] .text-\[\#676f79\] { color: #6b7280; }
 [data-theme="light"] .text-\[\#f9fafa\] { color: #111827; }

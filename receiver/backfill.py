@@ -1,15 +1,14 @@
 """
-UniFi Log Insight - Threat Score Backfill
+UniFi Log Insight - Queue-driven Threat Backfill (issue #67)
 
-Background daemon thread that periodically:
-1. Patches NULL threat_score log rows from ip_threats cache
-2. Patches logs that have scores but missing abuse detail fields
-3. Re-enriches stale ip_threats entries (pre-verbose) to populate abuse fields
-4. Looks up orphan IPs (not in cache) via AbuseIPDB
-5. Patches newly-fetched scores back to log rows
+Replaces the sweep-style backfill that caused 30-minute SSD IO spikes.
 
-Fixes gaps caused by 429 pauses, intermittent API timeouts,
-and the Phase 10 verbose migration.
+Background daemon thread that:
+1. Runs one-time gated repairs (direction, WAN IP, abuse hostname)
+2. Processes the threat_backfill_queue (deferred AbuseIPDB lookups)
+3. Runs targeted log patching only for IPs whose threat data changed
+4. Performs low-priority stale threat re-enrichment
+5. Runs one-shot service-name migration with ID cursor
 """
 
 import time
@@ -22,19 +21,16 @@ from services import get_service_mappings
 
 logger = logging.getLogger('backfill')
 
-BACKFILL_INTERVAL_SECONDS = 1800  # 30 minutes
-STALE_REENRICH_BATCH = 25  # Max IPs to re-enrich per cycle
+QUEUE_WORKER_INTERVAL = 300       # 5 minutes
+QUEUE_BATCH_SIZE = 50             # IPs per queue pass
+STALE_REENRICH_BATCH = 10         # Stale IPs per pass
+SERVICE_NAME_BATCH_SIZE = 1000    # Rows per service-name cursor batch
 
 
 class BackfillTask:
-    """Periodic backfill of missing threat scores and abuse detail fields."""
+    """Queue-driven backfill of missing threat scores and abuse detail."""
 
     def __init__(self, db, enricher):
-        """
-        Args:
-            db: Database instance with connection pool
-            enricher: Enricher instance (shared with live enrichment)
-        """
         self.db = db
         self.enricher = enricher
         self.abuseipdb = enricher.abuseipdb
@@ -46,87 +42,288 @@ class BackfillTask:
         """Start the backfill daemon thread."""
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name='backfill')
         self._thread.start()
-        logger.info("Backfill task started — runs every %ds", BACKFILL_INTERVAL_SECONDS)
+        logger.info("Backfill task started — queue worker runs every %ds", QUEUE_WORKER_INTERVAL)
 
     def _run_loop(self):
-        """Main loop — sleep then backfill."""
+        """Main loop — sleep then process queue."""
         # Initial delay: let the system settle after startup
         time.sleep(60)
 
+        cycle = 0
         while True:
             try:
-                self._run_once()
+                self._run_once(cycle)
             except Exception as e:
-                logger.error("Backfill cycle failed: %s", e)
+                logger.error("Backfill cycle failed: %s", e, exc_info=True)
 
-            time.sleep(BACKFILL_INTERVAL_SECONDS)
+            cycle += 1
+            time.sleep(QUEUE_WORKER_INTERVAL)
 
-    def _run_once(self):
+    def _run_once(self, cycle: int = 0):
         """Execute one backfill cycle."""
-        # Step 0a: Re-derive direction for firewall logs (if WAN interfaces changed)
+        # One-time gated repairs (kept from original, run every cycle until done)
         self._backfill_direction()
-
-        # Step 0b: Fix enrichment on logs that were enriched on our WAN IP
         self._fix_wan_ip_enrichment()
-
-        # Step 0c: Fix logs contaminated by WAN IP abuse data (issue #30)
         self._fix_abuse_hostname_mixing()
 
-        # Step 1: Patch NULL service_name rows for historical firewall logs
-        patched_services = self._patch_service_names()
+        # One-shot migrations (ID cursor, persisted progress)
+        self._service_name_migration()
+        self._orphan_queue_seed()
 
-        # Step 2: Patch NULL-scored rows from ip_threats cache
-        patched_null = self._patch_from_cache()
+        # Queue worker: process deferred threat lookups
+        self._process_queue()
 
-        # Step 2: Patch logs that have scores but missing abuse detail fields
-        patched_abuse = self._patch_abuse_fields()
+        # Low-priority stale re-enrichment (every 12th cycle ≈ hourly)
+        if cycle % 12 == 0:
+            self._reenrich_stale_threats()
 
-        # Step 3: Re-enrich stale ip_threats (pre-verbose entries missing abuse fields)
-        reenriched = self._reenrich_stale_threats()
+    # ── Queue worker ──────────────────────────────────────────────────────────
 
-        # Step 4: Find orphan IPs (NULL score, not in ip_threats)
-        orphans = self._find_orphans()
+    def _process_queue(self):
+        """Pull due IPs from the backfill queue, look them up, patch logs."""
+        from db import get_wan_ips_from_config
 
-        # Step 5: Look up orphans via AbuseIPDB (respects shared rate limits)
-        budget = self.abuseipdb.remaining_budget
-        if orphans and budget == 0:
-            logger.info(
-                "Backfill: %d services patched, %d null-score patched, %d abuse-fields patched, "
-                "%d re-enriched, %d orphans pending but no API budget",
-                patched_services, patched_null, patched_abuse, reenriched, len(orphans)
-            )
+        due_ips = self.db.pull_due_queue_batch(limit=QUEUE_BATCH_SIZE)
+        if not due_ips:
             return
 
-        # Only attempt as many as we have budget for
-        to_lookup = orphans[:budget] if budget > 0 else []
-        skipped = len(orphans) - len(to_lookup)
+        budget = self.abuseipdb.remaining_budget
+        # Bootstrap rule: when rate-limit state is unknown (startup),
+        # remaining_budget returns 0 but _check_rate_limit allows one call.
+        # Allow one lookup to bootstrap rate-limit state.
+        allow_bootstrap = (
+            budget == 0
+            and self.abuseipdb.enabled
+            and self.abuseipdb._rate_limit_remaining is None
+        )
 
-        looked_up = 0
-        failed = 0
-        for ip in to_lookup:
+        if budget == 0 and not allow_bootstrap:
+            logger.debug("Queue: %d due IPs but no API budget", len(due_ips))
+            return
+
+        wan_ips = get_wan_ips_from_config(self.db)
+        successful_ips = []
+        detail_ips = []  # IPs that gained abuse detail
+        failed_ips = []
+
+        for i, ip in enumerate(due_ips):
+            # After bootstrap call, recheck budget
+            if i == 1 and allow_bootstrap:
+                budget = self.abuseipdb.remaining_budget
+                allow_bootstrap = False
+            if i > 0 and budget <= 0 and not allow_bootstrap:
+                # Remaining IPs stay in queue for next cycle
+                break
+
             result = self.abuseipdb.lookup(ip)
             if result and 'threat_score' in result:
-                looked_up += 1
+                successful_ips.append(ip)
+                if any(result.get(k) for k in (
+                    'abuse_usage_type', 'abuse_hostnames',
+                    'abuse_total_reports', 'abuse_last_reported',
+                    'abuse_is_whitelisted', 'abuse_is_tor',
+                )):
+                    detail_ips.append(ip)
+                budget = self.abuseipdb.remaining_budget
             else:
-                failed += 1
-            time.sleep(1)  # Avoid rapid-fire API calls causing timeouts
+                failed_ips.append(ip)
 
-        # Step 6: Patch again to write newly-fetched scores to log rows
-        patched_final = 0
-        if looked_up > 0 or reenriched > 0:
-            patched_final = self._patch_from_cache() + self._patch_abuse_fields()
+            time.sleep(1)  # Avoid rapid-fire API calls
 
-        total_patched = patched_null + patched_abuse + patched_final
-        if total_patched > 0 or looked_up > 0 or failed > 0 or skipped > 0 or reenriched > 0 or patched_services > 0:
+        # Targeted patching for successful lookups
+        patched_cache = 0
+        patched_abuse = 0
+        if successful_ips:
+            patched_cache = self.db.patch_from_cache_for_ips(successful_ips, wan_ips)
+        if detail_ips:
+            patched_abuse = self.db.patch_abuse_fields_for_ips(detail_ips, wan_ips)
+
+        # Remove successful, backoff failed
+        self.db.delete_queue_rows(successful_ips)
+        self.db.fail_queue_rows(failed_ips, error='lookup_failed')
+
+        if successful_ips or failed_ips:
+            stats = self.db.get_queue_stats()
             logger.info(
-                "Backfill complete: %d services patched, %d null-score patched, %d abuse-fields patched, "
-                "%d ip_threats re-enriched, %d orphans looked up, %d failed, "
-                "%d skipped (no budget), %d rows patched from new data",
-                patched_services, patched_null, patched_abuse, reenriched,
-                looked_up, failed, skipped, patched_final
+                "Queue: %d looked up, %d failed, %d cache-patched, %d abuse-patched, "
+                "queue: %d total (%d due, %d retried)",
+                len(successful_ips), len(failed_ips),
+                patched_cache, patched_abuse,
+                stats['total'], stats['due'], stats['retried']
             )
-        else:
-            logger.debug("Backfill: nothing to do")
+
+    # ── Stale threat re-enrichment ────────────────────────────────────────────
+
+    def _reenrich_stale_threats(self):
+        """Re-enrich ip_threats entries missing abuse detail.
+
+        Uses last_seen_at from ip_threats directly — no logs join.
+        """
+        from db import get_wan_ips_from_config
+
+        budget = self.abuseipdb.remaining_budget
+        if budget == 0:
+            return 0
+
+        batch_size = min(STALE_REENRICH_BATCH, budget)
+        stale_ips = self.db.get_stale_threat_candidates(limit=batch_size)
+        if not stale_ips:
+            return 0
+
+        # Expire these entries so lookup() bypasses cache and hits API
+        with self.db.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE ip_threats SET looked_up_at = NOW() - INTERVAL '30 days' "
+                    "WHERE ip = ANY(%s::inet[])",
+                    [stale_ips]
+                )
+
+        # Clear from memory cache too
+        for ip in stale_ips:
+            self.abuseipdb.cache.delete(ip)
+
+        reenriched = []
+        detail_ips = []
+        for ip in stale_ips:
+            result = self.abuseipdb.lookup(ip)
+            if result and 'threat_score' in result:
+                reenriched.append(ip)
+                if any(result.get(k) for k in (
+                    'abuse_usage_type', 'abuse_hostnames',
+                    'abuse_total_reports', 'abuse_last_reported',
+                    'abuse_is_whitelisted', 'abuse_is_tor',
+                )):
+                    detail_ips.append(ip)
+            time.sleep(1)
+
+        # Targeted patching for re-enriched IPs
+        if reenriched:
+            wan_ips = get_wan_ips_from_config(self.db)
+            self.db.patch_from_cache_for_ips(reenriched, wan_ips)
+            if detail_ips:
+                self.db.patch_abuse_fields_for_ips(detail_ips, wan_ips)
+
+        if reenriched:
+            logger.info("Stale re-enrichment: %d/%d refreshed (%d with abuse detail)",
+                        len(reenriched), len(stale_ips), len(detail_ips))
+        return len(reenriched)
+
+    # ── One-shot service-name migration ───────────────────────────────────────
+
+    def _service_name_migration(self):
+        """One-shot ID-cursor migration for historical service_name gaps.
+
+        Persists cursor position in system_config. Stops when complete.
+        """
+        from db import get_config, set_config
+
+        if get_config(self.db, 'service_name_backfill_done', False):
+            return
+
+        last_id = get_config(self.db, 'service_name_backfill_last_id', 0) or 0
+        service_map = get_service_mappings()
+        total_patched = 0
+
+        # Process one batch per cycle to avoid blocking
+        rows = self.db.service_name_backfill_batch(last_id, SERVICE_NAME_BATCH_SIZE)
+        if not rows:
+            # No more rows — mark as done
+            set_config(self.db, 'service_name_backfill_done', True)
+            logger.info("Service-name backfill complete (cursor at id=%d)", last_id)
+            return
+
+        updates = []
+        for row_id, dst_port, protocol in rows:
+            last_id = row_id
+            proto = (protocol or '').lower()
+            name = service_map.get((dst_port, proto))
+            if name:
+                updates.append((row_id, name))
+
+        if updates:
+            total_patched = self.db.patch_service_names(updates)
+
+        # Persist cursor
+        set_config(self.db, 'service_name_backfill_last_id', last_id)
+
+        if total_patched > 0 or len(rows) > 0:
+            logger.debug("Service-name migration: %d patched in batch (cursor at id=%d)",
+                         total_patched, last_id)
+
+    def _orphan_queue_seed(self):
+        """One-time seed: scan historical logs for orphan IPs missing from ip_threats.
+
+        Uses ID-cursor batching to avoid full-table scans. Seeds the
+        threat_backfill_queue so the queue worker can process them gradually.
+        Persists cursor position in system_config. Stops when complete.
+        Gated on AbuseIPDB being enabled — no point seeding a queue that can't drain.
+        """
+        from db import get_config, set_config
+
+        if not self.abuseipdb.enabled:
+            return
+
+        if get_config(self.db, 'orphan_queue_seed_done', False):
+            return
+
+        last_id = get_config(self.db, 'orphan_queue_seed_last_id', 0) or 0
+        batch_size = 2000  # Larger batch OK — just reading IDs + lightweight inserts
+
+        # Read a batch of firewall/block log IDs where threat_score IS NULL
+        with self.db.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, host(src_ip) as src, host(dst_ip) as dst "
+                    "FROM logs "
+                    "WHERE id > %s "
+                    "  AND log_type = 'firewall' "
+                    "  AND rule_action = 'block' "
+                    "  AND threat_score IS NULL "
+                    "ORDER BY id LIMIT %s",
+                    [last_id, batch_size]
+                )
+                rows = cur.fetchall()
+
+        if not rows:
+            set_config(self.db, 'orphan_queue_seed_done', True)
+            logger.info("Orphan queue seed complete (cursor at id=%d)", last_id)
+            return
+
+        # Collect distinct remote IPs from this batch
+        candidate_ips = set()
+        for row_id, src, dst in rows:
+            last_id = row_id
+            if src and self.enricher._is_remote_ip(src):
+                candidate_ips.add(src)
+            if dst and self.enricher._is_remote_ip(dst):
+                candidate_ips.add(dst)
+
+        # Filter out IPs already in ip_threats
+        if candidate_ips:
+            ip_list = list(candidate_ips)
+            with self.db.get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT host(ip) FROM ip_threats WHERE ip = ANY(%s::inet[])",
+                        [ip_list]
+                    )
+                    already_known = {row[0] for row in cur.fetchall()}
+
+            orphans = candidate_ips - already_known
+            for ip in orphans:
+                try:
+                    self.db.enqueue_threat_backfill(ip, source='seed')
+                except Exception:
+                    logger.debug("Failed to seed-enqueue %s", ip, exc_info=True)
+
+            if orphans:
+                logger.debug("Orphan seed: enqueued %d IPs from batch (cursor at id=%d)",
+                             len(orphans), last_id)
+
+        set_config(self.db, 'orphan_queue_seed_last_id', last_id)
+
+    # ── One-time gated repairs (kept from original) ───────────────────────────
 
     def _backfill_direction(self) -> int:
         """Re-derive direction for firewall logs when WAN interfaces change.
@@ -198,7 +395,7 @@ class BackfillTask:
         data exists (geo_country not null) — these have our own ISP's data
         instead of the remote endpoint's. Re-enriches with dst_ip using
         local GeoIP/ASN/rDNS lookups (zero API cost). NULLs threat/abuse
-        fields so _patch_from_cache() re-fills from the correct IP.
+        fields so targeted patching re-fills from the correct IP.
 
         Gated by 'enrichment_wan_fix_pending' config flag — runs once.
         """
@@ -209,12 +406,12 @@ class BackfillTask:
 
         wan_ips = get_wan_ips_from_config(self.db)
         if not wan_ips:
-            # No WAN IPs known yet — skip and retry next cycle
             return 0
 
         logger.info("Starting WAN IP enrichment fix (WAN IPs: %s)...", wan_ips)
 
         total_fixed = 0
+        affected_remote_ips = set()  # Collect for targeted cache refill
         batch_size = 500
         last_id = 0
 
@@ -243,7 +440,6 @@ class BackfillTask:
                 last_id = id_val
 
                 if not self.enricher._is_remote_ip(dst_ip):
-                    # dst is private/missing — just NULL the wrong enrichment
                     updates.append((
                         None, None, None, None, None, None, None,
                         None, None, None, None, None, None, None, None,
@@ -251,7 +447,7 @@ class BackfillTask:
                     ))
                     continue
 
-                # Re-enrich with the correct IP (dst = remote party)
+                affected_remote_ips.add(dst_ip)
                 geo = self.geoip.lookup(dst_ip)
                 rdns = self.rdns.lookup(dst_ip)
 
@@ -260,7 +456,6 @@ class BackfillTask:
                     geo.get('geo_lat'), geo.get('geo_lon'),
                     geo.get('asn_number'), geo.get('asn_name'),
                     rdns.get('rdns'),
-                    # NULL threat/abuse fields — _patch_from_cache will re-fill
                     None, None, None, None, None, None, None, None,
                     id_val
                 ))
@@ -284,6 +479,14 @@ class BackfillTask:
             total_fixed += len(updates)
             logger.debug("WAN enrichment fix progress: %d logs fixed", total_fixed)
 
+        # Refill NULLed threat/abuse fields from ip_threats for affected IPs
+        if affected_remote_ips:
+            refilled = self.db.patch_from_cache_for_ips(
+                list(affected_remote_ips), wan_ips
+            )
+            if refilled:
+                logger.info("WAN fix: refilled %d log rows from ip_threats cache", refilled)
+
         set_config(self.db, 'enrichment_wan_fix_pending', False)
         logger.info("Enrichment WAN fix complete: %d logs re-enriched", total_fixed)
         return total_fixed
@@ -298,9 +501,6 @@ class BackfillTask:
         2. Re-patches corrupted log rows from the correct src_ip's ip_threats
         3. NULLs abuse fields for rows with no ip_threats entry
 
-        Rows with no ip_threats entry are NULLed (no data > wrong data);
-        _patch_from_cache() will re-fill when the IP is eventually enriched.
-
         Gated by 'abuse_hostname_fix_done' config flag — runs once.
         """
         from psycopg2.extras import RealDictCursor
@@ -311,7 +511,6 @@ class BackfillTask:
 
         wan_ips = get_wan_ips_from_config(self.db)
         if not wan_ips:
-            # No WAN IPs known yet — skip and retry next cycle
             return 0
 
         gateway_ips = get_config(self.db, 'gateway_ips') or []
@@ -365,7 +564,6 @@ class BackfillTask:
             if not rows:
                 break
 
-            # Batch-fetch ip_threats for all src IPs in this batch
             src_ips = list({row['src_ip'] for row in rows})
             with self.db.get_conn() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -377,7 +575,6 @@ class BackfillTask:
                     """, [src_ips])
                     threats_by_ip = {r['ip_text']: r for r in cur.fetchall()}
 
-            # Build update tuples: correct data from ip_threats, or NULL everything
             updates = []
             for row in rows:
                 last_id = row['id']
@@ -414,295 +611,3 @@ class BackfillTask:
         set_config(self.db, 'abuse_hostname_fix_done', True)
         logger.info("Abuse hostname fix complete: %d logs repaired", total_fixed)
         return total_fixed
-
-    def _patch_from_cache(self) -> int:
-        """Update NULL threat_score log rows from ip_threats table.
-
-        Patches score, categories, and AbuseIPDB detail fields.
-        Two-pass approach: src_ip first (skipping WAN IPs), then dst_ip
-        for remaining NULLs. WAN IPs are excluded so we only patch from
-        the remote party's threat data.
-        Returns number of rows updated.
-        """
-        from db import get_wan_ips_from_config
-        wan_ips = get_wan_ips_from_config(self.db)
-
-        with self.db.get_conn() as conn:
-            with conn.cursor() as cur:
-                # Pass 1: patch where src_ip matches (skip WAN IPs)
-                cur.execute("""
-                    UPDATE logs
-                    SET threat_score = t.threat_score,
-                        threat_categories = t.threat_categories,
-                        abuse_usage_type = COALESCE(logs.abuse_usage_type, t.abuse_usage_type),
-                        abuse_hostnames = COALESCE(logs.abuse_hostnames, t.abuse_hostnames),
-                        abuse_total_reports = COALESCE(logs.abuse_total_reports, t.abuse_total_reports),
-                        abuse_last_reported = COALESCE(logs.abuse_last_reported, t.abuse_last_reported),
-                        abuse_is_whitelisted = COALESCE(logs.abuse_is_whitelisted, t.abuse_is_whitelisted),
-                        abuse_is_tor = COALESCE(logs.abuse_is_tor, t.abuse_is_tor)
-                    FROM ip_threats t
-                    WHERE logs.src_ip = t.ip
-                      AND NOT (logs.src_ip = ANY(%s::inet[]))
-                      AND logs.threat_score IS NULL
-                      AND logs.log_type = 'firewall'
-                      AND logs.rule_action = 'block'
-                """, [wan_ips])
-                patched = cur.rowcount
-
-                # Pass 2: patch remaining NULLs where dst_ip matches (skip WAN IPs)
-                cur.execute("""
-                    UPDATE logs
-                    SET threat_score = t.threat_score,
-                        threat_categories = t.threat_categories,
-                        abuse_usage_type = COALESCE(logs.abuse_usage_type, t.abuse_usage_type),
-                        abuse_hostnames = COALESCE(logs.abuse_hostnames, t.abuse_hostnames),
-                        abuse_total_reports = COALESCE(logs.abuse_total_reports, t.abuse_total_reports),
-                        abuse_last_reported = COALESCE(logs.abuse_last_reported, t.abuse_last_reported),
-                        abuse_is_whitelisted = COALESCE(logs.abuse_is_whitelisted, t.abuse_is_whitelisted),
-                        abuse_is_tor = COALESCE(logs.abuse_is_tor, t.abuse_is_tor)
-                    FROM ip_threats t
-                    WHERE logs.dst_ip = t.ip
-                      AND NOT (logs.dst_ip = ANY(%s::inet[]))
-                      AND logs.threat_score IS NULL
-                      AND logs.log_type = 'firewall'
-                      AND logs.rule_action = 'block'
-                """, [wan_ips])
-                patched += cur.rowcount
-
-                return patched
-
-    def _patch_abuse_fields(self) -> int:
-        """Patch logs that HAVE a threat_score but are MISSING abuse detail fields.
-
-        This covers logs scored before verbose mode was enabled.
-        Only patches from ip_threats entries that have abuse data.
-        Two-pass: src_ip first (skip WAN IPs), then dst_ip for remaining gaps.
-        Returns number of rows updated.
-        """
-        from db import get_wan_ips_from_config
-        wan_ips = get_wan_ips_from_config(self.db)
-
-        with self.db.get_conn() as conn:
-            with conn.cursor() as cur:
-                # Pass 1: src_ip match (skip WAN IPs)
-                cur.execute("""
-                    UPDATE logs
-                    SET abuse_usage_type = t.abuse_usage_type,
-                        abuse_hostnames = t.abuse_hostnames,
-                        abuse_total_reports = t.abuse_total_reports,
-                        abuse_last_reported = t.abuse_last_reported,
-                        abuse_is_whitelisted = t.abuse_is_whitelisted,
-                        abuse_is_tor = t.abuse_is_tor,
-                        threat_categories = CASE
-                            WHEN t.threat_categories IS NOT NULL
-                                 AND array_length(t.threat_categories, 1) > 0
-                                 AND (logs.threat_categories IS NULL
-                                      OR array_length(logs.threat_categories, 1) IS NULL
-                                      OR array_length(logs.threat_categories, 1) = 0)
-                            THEN t.threat_categories
-                            ELSE logs.threat_categories
-                        END
-                    FROM ip_threats t
-                    WHERE logs.src_ip = t.ip
-                      AND NOT (logs.src_ip = ANY(%s::inet[]))
-                      AND logs.threat_score IS NOT NULL
-                      AND logs.abuse_usage_type IS NULL
-                      AND t.abuse_usage_type IS NOT NULL
-                      AND logs.log_type = 'firewall'
-                      AND logs.rule_action = 'block'
-                """, [wan_ips])
-                patched = cur.rowcount
-
-                # Pass 2: dst_ip match for remaining gaps (skip WAN IPs)
-                cur.execute("""
-                    UPDATE logs
-                    SET abuse_usage_type = t.abuse_usage_type,
-                        abuse_hostnames = t.abuse_hostnames,
-                        abuse_total_reports = t.abuse_total_reports,
-                        abuse_last_reported = t.abuse_last_reported,
-                        abuse_is_whitelisted = t.abuse_is_whitelisted,
-                        abuse_is_tor = t.abuse_is_tor,
-                        threat_categories = CASE
-                            WHEN t.threat_categories IS NOT NULL
-                                 AND array_length(t.threat_categories, 1) > 0
-                                 AND (logs.threat_categories IS NULL
-                                      OR array_length(logs.threat_categories, 1) IS NULL
-                                      OR array_length(logs.threat_categories, 1) = 0)
-                            THEN t.threat_categories
-                            ELSE logs.threat_categories
-                        END
-                    FROM ip_threats t
-                    WHERE logs.dst_ip = t.ip
-                      AND NOT (logs.dst_ip = ANY(%s::inet[]))
-                      AND logs.threat_score IS NOT NULL
-                      AND logs.abuse_usage_type IS NULL
-                      AND t.abuse_usage_type IS NOT NULL
-                      AND logs.log_type = 'firewall'
-                      AND logs.rule_action = 'block'
-                """, [wan_ips])
-                patched += cur.rowcount
-
-                return patched
-
-    def _patch_service_names(self) -> int:
-        """Backfill service names for historical firewall logs with NULL service_name.
-
-        Uses a single batch UPDATE with VALUES CTE to avoid scanning the logs table
-        once per service. Only updates firewall logs that have dst_port but NULL service_name.
-        Returns number of rows updated.
-        """
-        # Quick check: are there any NULL service_name rows to patch?
-        with self.db.get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT EXISTS(
-                        SELECT 1 FROM logs
-                        WHERE dst_port IS NOT NULL
-                          AND service_name IS NULL
-                          AND log_type = 'firewall'
-                        LIMIT 1
-                    )
-                """)
-                has_nulls = cur.fetchone()[0]
-
-        if not has_nulls:
-            return 0
-
-        # Build VALUES tuples from service map: (port, protocol, service_name)
-        # Chunk into batches of 500 to avoid massive SQL statements
-        service_tuples = [(port, proto, name) for (port, proto), name in get_service_mappings().items()]
-        batch_size = 500
-        total_patched = 0
-
-        with self.db.get_conn() as conn:
-            with conn.cursor() as cur:
-                for i in range(0, len(service_tuples), batch_size):
-                    batch = service_tuples[i:i + batch_size]
-
-                    # Build VALUES clause
-                    values_list = []
-                    params = []
-                    for port, proto, name in batch:
-                        values_list.append("(%s, %s, %s)")
-                        params.extend([port, proto, name])
-
-                    values_clause = ', '.join(values_list)
-
-                    # Single UPDATE statement for this batch
-                    sql = f"""
-                        UPDATE logs
-                        SET service_name = v.service_name
-                        FROM (VALUES {values_clause}) AS v(port, protocol, service_name)
-                        WHERE logs.dst_port = v.port
-                          AND logs.protocol = v.protocol
-                          AND logs.service_name IS NULL
-                          AND logs.log_type = 'firewall'
-                    """
-
-                    cur.execute(sql, params)
-                    total_patched += cur.rowcount
-
-        if total_patched > 0:
-            logger.debug("Service name backfill: patched %d historical firewall log rows", total_patched)
-
-        return total_patched
-
-    def _reenrich_stale_threats(self) -> int:
-        """Re-lookup ip_threats entries that are missing abuse detail fields.
-
-        These are entries created before verbose mode was enabled.
-        Excludes blacklist-only entries (they don't have detail data).
-        Limited to STALE_REENRICH_BATCH per cycle to conserve API budget.
-
-        Strategy: expire stale entries by backdating looked_up_at, then
-        call lookup() which will see them as expired and hit the API.
-        Returns number of IPs re-enriched.
-        """
-        budget = self.abuseipdb.remaining_budget
-        if budget == 0:
-            return 0
-
-        batch_size = min(STALE_REENRICH_BATCH, budget)
-
-        with self.db.get_conn() as conn:
-            with conn.cursor() as cur:
-                # Two-stage selection: 100 most recently seen, then top N by score
-                cur.execute("""
-                    SELECT ip_str, threat_score FROM (
-                        SELECT host(t.ip) as ip_str, t.threat_score,
-                               MAX(l.timestamp) as last_seen
-                        FROM ip_threats t
-                        JOIN logs l ON (l.src_ip = t.ip OR l.dst_ip = t.ip)
-                        WHERE t.abuse_usage_type IS NULL
-                          AND (t.threat_categories IS NULL
-                               OR t.threat_categories = '{}'
-                               OR t.threat_categories = '{"blacklist"}')
-                          AND t.threat_score > 0
-                          AND l.log_type = 'firewall'
-                          AND l.rule_action = 'block'
-                        GROUP BY t.ip, t.threat_score
-                        ORDER BY last_seen DESC
-                        LIMIT 100
-                    ) recent
-                    ORDER BY threat_score DESC
-                    LIMIT %s
-                """, [batch_size])
-                stale_ips = [row[0] for row in cur.fetchall()]
-
-        if not stale_ips:
-            return 0
-
-        # Expire these entries so lookup() bypasses cache and hits API
-        with self.db.get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE ip_threats
-                    SET looked_up_at = NOW() - INTERVAL '30 days'
-                    WHERE ip = ANY(%s::inet[])
-                """, [stale_ips])
-
-        # Clear from memory cache too
-        for ip in stale_ips:
-            self.abuseipdb.cache.delete(ip)
-
-        reenriched = 0
-        for ip in stale_ips:
-            result = self.abuseipdb.lookup(ip)
-            if result and result.get('abuse_usage_type'):
-                reenriched += 1
-            time.sleep(1)  # Avoid rapid-fire API calls
-
-        return reenriched
-
-    def _find_orphans(self) -> list[str]:
-        """Find public IPs with NULL scores that are NOT in ip_threats cache.
-
-        Checks both src_ip and dst_ip to match enricher scope.
-        Uses host() to guarantee bare IP strings (no /32 suffix from INET).
-        Returns only public IPs (enricher skips private IPs).
-        """
-        with self.db.get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT DISTINCT host(ip) FROM (
-                        SELECT l.src_ip AS ip
-                        FROM logs l
-                        LEFT JOIN ip_threats t ON l.src_ip = t.ip
-                        WHERE l.threat_score IS NULL
-                          AND l.log_type = 'firewall'
-                          AND l.rule_action = 'block'
-                          AND l.src_ip IS NOT NULL
-                          AND t.ip IS NULL
-                        UNION
-                        SELECT l.dst_ip AS ip
-                        FROM logs l
-                        LEFT JOIN ip_threats t ON l.dst_ip = t.ip
-                        WHERE l.threat_score IS NULL
-                          AND l.log_type = 'firewall'
-                          AND l.rule_action = 'block'
-                          AND l.dst_ip IS NOT NULL
-                          AND t.ip IS NULL
-                    ) sub
-                """)
-                return [row[0] for row in cur.fetchall()
-                        if self.enricher._is_remote_ip(row[0])]

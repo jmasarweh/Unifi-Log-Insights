@@ -1,9 +1,14 @@
+# Exact pins are intentional for Docker image reproducibility.
+# Versions are updated manually via Dependabot PRs.
 psycopg2-binary==2.9.10
 schedule==1.2.2
 geoip2==4.8.1
 requests==2.32.4
 fastapi==0.120.1
 uvicorn==0.34.0
-starlette>=0.49.1
-cryptography>=43.0.0
-pyyaml>=6.0
+starlette==0.49.3
+# cryptography 46.0.5 SECT-curve breaking change is not relevant here —
+# this project only uses Fernet (AES) via PBKDF2 key derivation, no ECDH/ECDSA.
+cryptography==46.0.5
+pyyaml==6.0.3
+bcrypt==5.0.0

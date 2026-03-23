@@ -508,7 +508,7 @@ export default function ThreatMap({ maxFilterDays, flyTo, onFlyToDone }) {
                 onClick={() => setMode(m.id)}
                 aria-pressed={mode === m.id}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-                  mode === m.id ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
+                  mode === m.id ? 'bg-black text-white border border-gray-600' : 'text-gray-400 hover:text-gray-300 border border-transparent'
                 }`}
               >
                 {m.label}
@@ -527,7 +527,7 @@ export default function ThreatMap({ maxFilterDays, flyTo, onFlyToDone }) {
                 onClick={() => setView(v.id)}
                 aria-pressed={view === v.id}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-                  view === v.id ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
+                  view === v.id ? 'bg-black text-white border border-gray-600' : 'text-gray-400 hover:text-gray-300 border border-transparent'
                 }`}
               >
                 {v.label}
@@ -546,7 +546,7 @@ export default function ThreatMap({ maxFilterDays, flyTo, onFlyToDone }) {
                 onClick={() => setTimeRange(tr)}
                 aria-pressed={timeRange === tr}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-                  timeRange === tr ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-300'
+                  timeRange === tr ? 'bg-black text-white border border-gray-600' : 'text-gray-400 hover:text-gray-300 border border-transparent'
                 }`}
               >
                 {tr}

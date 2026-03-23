@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { fetchLogs, fetchLog, getExportUrl, fetchUiSettings } from '../api'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { fetchLogs, fetchLog, getExportUrl } from '../api'
 import { TR_KEY } from '../utils'
 import FilterBar from './FilterBar'
 import LogTable from './LogTable'
@@ -43,7 +43,7 @@ const TOGGLEABLE_COLUMNS = [
   { key: 'categories', label: 'Categories' },
 ]
 
-export default function LogStream({ version, latestRelease, maxFilterDays, drillFilters, onDrillConsumed, interfaces: prefetchedInterfaces, onPauseChange }) {
+export default function LogStream({ version, latestRelease, maxFilterDays, drillFilters, onDrillConsumed, interfaces: prefetchedInterfaces, onPauseChange, uiSettings }) {
   const [filters, setFilters] = useState(() => {
     const restored = { ...DEFAULT_FILTERS }
     try {
@@ -87,10 +87,10 @@ export default function LogStream({ version, latestRelease, maxFilterDays, drill
     } catch (e) { /* private browsing */ }
     return new Set()
   })
-  const [uiSettings, setUiSettings] = useState(null)
   const [showColumnsMenu, setShowColumnsMenu] = useState(false)
   const columnsMenuRef = useRef(null)
-  const intervalRef = useRef(null)
+  const filtersRef = useRef(filters)
+  filtersRef.current = filters
   const pendingRef = useRef(null)
   const scrollRef = useRef(null)
   const [showScrollTop, setShowScrollTop] = useState(false)
@@ -132,10 +132,6 @@ export default function LogStream({ version, latestRelease, maxFilterDays, drill
     window.dispatchEvent(new Event('returnFromDrill'))
   }, [])
 
-  // Load UI display settings
-  useEffect(() => {
-    fetchUiSettings().then(setUiSettings).catch(() => {})
-  }, [])
 
   // Persist filter toggles to localStorage
   useEffect(() => {
@@ -199,8 +195,7 @@ export default function LogStream({ version, latestRelease, maxFilterDays, drill
             if (v !== null && v !== undefined && v !== '') qs.set(k, v)
           }
           qs.set('per_page', '1')
-          const resp = await fetch(`/api/logs?${qs}`)
-          const result = await resp.json()
+          const result = await fetchLogs(Object.fromEntries(qs))
           const diff = result.total - data.total
           if (diff > 0) setPendingCount(diff)
         } catch {}
@@ -224,8 +219,8 @@ export default function LogStream({ version, latestRelease, maxFilterDays, drill
     if (expandedId === id) {
       setExpandedId(null)
       setPendingCount(0)
-      // Refresh immediately on collapse
-      load(filters)
+      // Refresh silently on collapse — no skeleton so the user keeps their place
+      load(filters, { background: true })
     } else {
       setExpandedId(id)
       setPendingCount(0)
@@ -241,10 +236,11 @@ export default function LogStream({ version, latestRelease, maxFilterDays, drill
     return () => el.removeEventListener('scroll', handleScroll)
   }, [])
 
+  // Stable load function — reads filters from ref to avoid effect cascades
   const load = useCallback(async (f, { background } = {}) => {
     try {
       if (!background) setLoading(true)
-      const result = await fetchLogs(f || filters)
+      const result = await fetchLogs(f || filtersRef.current)
       setData(result)
       setLastUpdate(new Date())
     } catch (err) {
@@ -252,23 +248,19 @@ export default function LogStream({ version, latestRelease, maxFilterDays, drill
     } finally {
       if (!background) setLoading(false)
     }
-  }, [filters])
+  }, [])
 
   // Load on filter change
   useEffect(() => {
     load(filters)
-  }, [filters]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters, load])
 
   // Auto-refresh every 5s when on page 1 and no row expanded
   useEffect(() => {
-    if (intervalRef.current) clearInterval(intervalRef.current)
-    if (isRefreshing && filters.page === 1) {
-      intervalRef.current = setInterval(() => load(filters, { background: true }), 5000)
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
-  }, [isRefreshing, filters, load])
+    if (!isRefreshing || filters.page !== 1) return
+    const id = setInterval(() => load(null, { background: true }), 5000)
+    return () => clearInterval(id)
+  }, [isRefreshing, filters.page, load])
 
   const handleFilterChange = (newFilters) => {
     setExpandedId(null)

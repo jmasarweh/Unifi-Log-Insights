@@ -240,7 +240,7 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
                         value={labels[seg.interface] || ''}
                         onChange={(e) => handleLabelChange(seg.interface, e.target.value)}
                         placeholder={seg.suggested_label || 'e.g., WAN 1'}
-                        className={`w-full px-3 py-1.5 bg-gray-800 border rounded text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
+                        className={`w-full px-3 py-1.5 bg-black border rounded text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 ${
                           duplicateLabels.has(seg.interface) ? 'border-yellow-500/50' : 'border-gray-700'
                         }`}
                       />
@@ -303,7 +303,7 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
                           value={labels[seg.interface] || ''}
                           onChange={(e) => handleLabelChange(seg.interface, e.target.value)}
                           placeholder={seg.suggested_label || 'e.g., Main LAN'}
-                          className={`w-full px-3 py-1.5 bg-gray-800 border rounded text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
+                          className={`w-full px-3 py-1.5 bg-black border rounded text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 ${
                             duplicateLabels.has(seg.interface) ? 'border-yellow-500/50' : 'border-gray-700'
                           }`}
                         />
@@ -337,7 +337,7 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
               onChange={(e) => setVlanId(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddVlan()}
               placeholder="VLAN ID"
-              className="w-28 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm font-mono text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              className="w-28 px-3 py-1.5 bg-black border border-gray-700 rounded text-sm font-mono text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
             />
             {vlanId && vlanIdToInterface(parseInt(vlanId)) && (
               <span className="text-sm font-mono text-gray-400 shrink-0">
@@ -351,7 +351,7 @@ export default function WizardStepLabels({ wanInterfaces, labels, onUpdate, vpnC
               onChange={(e) => setVlanLabel(e.target.value.replace(LABEL_REGEX, ''))}
               onKeyDown={(e) => e.key === 'Enter' && handleAddVlan()}
               placeholder="Label (e.g., IoT, Guest)"
-              className="flex-1 max-w-xs px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+              className="flex-1 max-w-xs px-3 py-1.5 bg-black border border-gray-700 rounded text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
             />
             <button
               onClick={handleAddVlan}

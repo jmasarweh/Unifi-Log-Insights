@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 116" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="10 2 80 88" fill="none">
   <!-- Bulb fill -->
   <path d="M 29 68 C 22 62, 16 53, 16 41 A 34 34 0 1 1 84 41 C 84 53, 78 62, 71 68 Z" fill="#14B8A6"/>
   <!-- Highlight arc (glass reflection) -->
@@ -7,6 +7,4 @@
   <line x1="28" y1="75" x2="72" y2="75" stroke="#14B8A6" stroke-width="5.2" stroke-linecap="round"/>
   <!-- Base line 2 -->
   <line x1="36" y1="84" x2="64" y2="84" stroke="#14B8A6" stroke-width="5.2" stroke-linecap="round"/>
-  <!-- PLUS wordmark (two-tone accent) -->
-  <text x="50" y="110" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif" font-weight="800" font-size="19" letter-spacing="0.16em" fill="#0D9488">PLUS</text>
 </svg>

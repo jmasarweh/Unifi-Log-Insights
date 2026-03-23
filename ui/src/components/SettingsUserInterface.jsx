@@ -17,7 +17,7 @@ const THEME_OPTIONS = [
   { value: 'light', label: 'Light' },
 ]
 
-export default function SettingsUserInterface() {
+export default function SettingsUserInterface({ onSaved }) {
   const [settings, setSettings] = useState(null)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -55,6 +55,7 @@ export default function SettingsUserInterface() {
       }
       setDirty(false)
       setStatus('saved')
+      onSaved?.(settings)
     } catch {
       setStatus('error')
     } finally {
@@ -138,7 +139,7 @@ export default function SettingsUserInterface() {
                   max={100}
                   value={settings.ui_block_highlight_threshold ?? 0}
                   onChange={e => update('ui_block_highlight_threshold', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
-                  className="w-20 px-2 py-1 rounded bg-gray-900 border border-gray-700 text-sm text-gray-200 focus:border-teal-500 focus:outline-none"
+                  className="w-20 px-2 py-1 rounded bg-black border border-gray-700 text-sm text-gray-200 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                 />
               </div>
             )}

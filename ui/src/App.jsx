@@ -9,9 +9,50 @@ import FlowViewSkeleton from './components/FlowViewSkeleton'
 const Dashboard = React.lazy(() => import('./components/Dashboard'))
 const ThreatMap = React.lazy(() => import('./components/ThreatMap'))
 const FlowView = React.lazy(() => import('./components/FlowView'))
-import { fetchHealth, fetchConfig, fetchLatestRelease, dismissUpgradeModal, dismissVpnToast, fetchInterfaces, fetchUiSettings, updateUiSettings, fetchUniFiSettings } from './api'
+import Login from './components/Login'
+import { fetchHealth, fetchConfig, fetchLatestRelease, dismissUpgradeModal, dismissVpnToast, fetchInterfaces, fetchUiSettings, updateUiSettings, fetchUniFiSettings, fetchAuthStatus, fetchAuthMe, authLogout, setAuthExpiredHandler } from './api'
 import { loadInterfaceLabels } from './utils'
 import { isVpnInterface } from './vpnUtils'
+
+function LoadingSplash() {
+  return (
+    <div className="flex items-center justify-center h-dvh bg-gray-950">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 116" fill="none" className="w-20 h-24">
+        <style>{`
+          @keyframes trace {
+            0% { stroke-dashoffset: 200; }
+            100% { stroke-dashoffset: 0; }
+          }
+          .trace-path {
+            stroke-dasharray: 40 160;
+            animation: trace 1.8s linear infinite;
+          }
+          .trace-delay-1 { animation-delay: -0.4s; }
+          .trace-delay-2 { animation-delay: -0.8s; }
+          .trace-delay-3 { animation-delay: -1.2s; }
+          @keyframes arc-pulse {
+            0%, 100% { opacity: 0.12; }
+            50% { opacity: 0.7; }
+          }
+          .arc-pulse {
+            animation: arc-pulse 2s ease-in-out infinite;
+          }
+        `}</style>
+        {/* Static dim icon */}
+        <path d="M 29 68 C 22 62, 16 53, 16 41 A 34 34 0 1 1 84 41 C 84 53, 78 62, 71 68" stroke="#14B8A6" strokeWidth="5.2" strokeLinecap="round" fill="none" opacity="0.15"/>
+        <path d="M 28 34 A 18 18 0 0 1 44 22" stroke="#14B8A6" strokeWidth="4.8" strokeLinecap="round" fill="none" className="arc-pulse"/>
+        <line x1="28" y1="75" x2="72" y2="75" stroke="#14B8A6" strokeWidth="5.2" strokeLinecap="round" opacity="0.15"/>
+        <line x1="36" y1="84" x2="64" y2="84" stroke="#14B8A6" strokeWidth="5.2" strokeLinecap="round" opacity="0.15"/>
+        <text x="50" y="110" textAnchor="middle" fontFamily="-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif" fontWeight="800" fontSize="19" letterSpacing="0.16em" fill="#0D9488">PLUS</text>
+        {/* Animated chasing traces */}
+        <path d="M 29 68 C 22 62, 16 53, 16 41 A 34 34 0 1 1 84 41 C 84 53, 78 62, 71 68" stroke="#14B8A6" strokeWidth="5.2" strokeLinecap="round" fill="none" className="trace-path"/>
+        <path d="M 28 34 A 18 18 0 0 1 44 22" stroke="#14B8A6" strokeWidth="4.8" strokeLinecap="round" fill="none" className="trace-path trace-delay-1"/>
+        <line x1="28" y1="75" x2="72" y2="75" stroke="#14B8A6" strokeWidth="5.2" strokeLinecap="round" className="trace-path trace-delay-2"/>
+        <line x1="36" y1="84" x2="64" y2="84" stroke="#14B8A6" strokeWidth="5.2" strokeLinecap="round" className="trace-path trace-delay-3"/>
+      </svg>
+    </div>
+  )
+}
 
 /** Validate an IP-like string (IPv4 dotted-decimal or IPv6 hex+colon). */
 function isValidIpFormat(ip) {
@@ -79,6 +120,7 @@ export default function App() {
   const [latestRelease, setLatestRelease] = useState(null)
   const [showWizard, setShowWizard] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsInitialSection, setSettingsInitialSection] = useState(null)
   const [settingsReconfig, setSettingsReconfig] = useState(false)
   const [config, setConfig] = useState(null)
   const [configLoaded, setConfigLoaded] = useState(false)
@@ -98,15 +140,20 @@ export default function App() {
   const [allInterfaces, setAllInterfaces] = useState(null)
   const [showWanToast, setShowWanToast] = useState(false)
   const [showUnifiToast, setShowUnifiToast] = useState(false)
+  const [showProxyToast, setShowProxyToast] = useState(false)
   const [theme, setTheme] = useState(() => {
     const urlTheme = new URLSearchParams(window.location.search).get('theme')
     if (urlTheme === 'light' || urlTheme === 'dark') return urlTheme
     return localStorage.getItem('ui_theme') || 'dark'
   })
+  const initialThemeRef = useRef(theme)
   const [showStatusTooltip, setShowStatusTooltip] = useState(false)
   const statusRef = useRef(null)
   const [logsPaused, setLogsPaused] = useState(false)
   const onLogsPauseChange = useCallback((paused) => setLogsPaused(paused), [])
+  const [uiSettings, setUiSettings] = useState(null)
+  const [authState, setAuthState] = useState('loading') // 'loading', 'login', 'authenticated', 'none'
+  const [authStatus, setAuthStatus] = useState(null) // response from /api/auth/status
 
   // Persist URL-derived theme to localStorage so Settings reads the correct value
   useEffect(() => {
@@ -116,16 +163,17 @@ export default function App() {
     }
   }, [])
 
-  // Hydrate theme from API when localStorage is empty (e.g., cleared cache, new browser)
+  // Fetch UI settings after auth resolves (avoids 401 when auth is enabled)
   useEffect(() => {
-    if (localStorage.getItem('ui_theme')) return
+    if (authState === 'loading' || authState === 'login') return
     fetchUiSettings().then(data => {
-      if (data.ui_theme && data.ui_theme !== theme) {
+      setUiSettings(data)
+      if (!localStorage.getItem('ui_theme') && data.ui_theme && data.ui_theme !== initialThemeRef.current) {
         setTheme(data.ui_theme)
         localStorage.setItem('ui_theme', data.ui_theme)
       }
     }).catch(() => {})
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useLayoutEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -192,8 +240,68 @@ export default function App() {
     })
   }
 
-  // Load config + interface labels in a single fetch
+  // Auth bootstrap — ref so onAuthEnabled() can also arm the 401 handler
+  const bootstrapDoneRef = useRef(false)
+
   useEffect(() => {
+    let mounted = true
+    bootstrapDoneRef.current = false
+
+    // Only activate the expired handler after bootstrap confirms auth is active.
+    // Otherwise, early 401s from parallel API calls (fetchConfig, fetchHealth, etc.)
+    // would prematurely flip to the login screen before authStatus is set.
+    setAuthExpiredHandler(() => {
+      if (mounted && bootstrapDoneRef.current) setAuthState('login')
+    })
+
+    fetchAuthStatus()
+      .then(async (status) => {
+        if (!mounted) return
+        setAuthStatus(status)
+
+        // Setup wizard takes priority
+        if (status.setup_complete === false) {
+          setAuthState('none')
+          return
+        }
+
+        if (!status.auth_enabled_effective) {
+          setAuthState('none')
+          return
+        }
+
+        // Auth enabled, has users — check session
+        try {
+          const me = await fetchAuthMe()
+          if (me.authenticated) {
+            bootstrapDoneRef.current = true
+            setAuthState('authenticated')
+            // Warn if reverse proxy isn't sending X-ULI-Proxy-Auth
+            if (!status.proxy_trusted && !sessionStorage.getItem('proxy_toast_dismissed')) {
+              setShowProxyToast(true)
+            }
+          } else {
+            bootstrapDoneRef.current = true
+            setAuthState('login')
+          }
+        } catch {
+          bootstrapDoneRef.current = true
+          setAuthState('login')
+        }
+      })
+      .catch(() => {
+        if (mounted) setAuthState('none') // Can't reach server, proceed without auth
+      })
+
+    return () => {
+      mounted = false
+      setAuthExpiredHandler(null)
+    }
+  }, [])
+
+  // Load config + interface labels after auth resolves
+  useEffect(() => {
+    if (authState === 'loading' || authState === 'login') return
     let mounted = true
     fetchConfig()
       .then(cfg => {
@@ -225,7 +333,7 @@ export default function App() {
         if (mounted) setConfigLoaded(true)
       })
     return () => { mounted = false }
-  }, [])
+  }, [authState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchHealth().then(setHealth).catch(() => {})
@@ -234,6 +342,20 @@ export default function App() {
     }, 15000)
     return () => clearInterval(interval)
   }, [])
+
+  // Auto-dismiss proxy toast once reverse proxy starts sending X-ULI-Proxy-Auth
+  useEffect(() => {
+    if (!showProxyToast) return
+    const interval = setInterval(() => {
+      fetchAuthStatus().then(status => {
+        if (status.proxy_trusted) {
+          setShowProxyToast(false)
+          setAuthStatus(prev => ({ ...prev, proxy_trusted: true, is_https: status.is_https }))
+        }
+      }).catch(() => {})
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [showProxyToast])
 
   // Close status tooltip on click outside
   useEffect(() => {
@@ -249,6 +371,7 @@ export default function App() {
 
   // Detect unlabeled VPN interfaces and show toast
   useEffect(() => {
+    if (authState === 'loading' || authState === 'login') return
     if (!config || !configLoaded) return
     const vpnNets = config.vpn_networks || {}
     const wanSet = new Set(config.wan_interfaces || [])
@@ -266,10 +389,11 @@ export default function App() {
       if (config.vpn_toast_dismissed) return
       setShowVpnToast(true)
     }).catch(() => {})
-  }, [config, configLoaded])
+  }, [authState, config, configLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check UniFi controller connection status and show toast if disconnected
   useEffect(() => {
+    if (authState === 'loading' || authState === 'login') return
     if (!config || !configLoaded) return
     if (!config.unifi_enabled) return
     const dismissed = sessionStorage.getItem('unifi_toast_dismissed')
@@ -279,7 +403,7 @@ export default function App() {
         setShowUnifiToast(true)
       }
     }).catch(() => {})
-  }, [config, configLoaded])
+  }, [authState, config, configLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Prompt multi-WAN users to reconfigure when WAN IP mapping is missing
   useEffect(() => {
@@ -369,12 +493,26 @@ export default function App() {
     return health.retention_days || 60
   }, [health])
 
-  if (!configLoaded) {
+  // Auth gates
+  if (authState === 'loading') {
+    return <LoadingSplash />
+  }
+
+  if (authState === 'login') {
     return (
-      <div className="flex items-center justify-center h-dvh bg-gray-950 text-gray-300 text-sm">
-        Loading configuration...
-      </div>
+      <Login
+        isHttps={authStatus?.is_https}
+        proxyTrusted={authStatus?.proxy_trusted}
+        isEmbedded={isEmbedded}
+        theme={theme}
+        version={health?.version}
+        onSuccess={() => setAuthState('authenticated')}
+      />
     )
+  }
+
+  if (!configLoaded) {
+    return <LoadingSplash />
   }
 
   // Show setup wizard if not configured
@@ -393,14 +531,18 @@ export default function App() {
         setTheme(localStorage.getItem('ui_theme') || 'dark')
         setShowSettings(false)
         setSettingsReconfig(false)
+        setSettingsInitialSection(null)
       }}
       startInReconfig={settingsReconfig}
+      initialSection={settingsInitialSection}
       unlabeledVpn={unlabeledVpn}
       onVpnSaved={(cfg) => reloadConfig(cfg).catch(() => {})}
       version={health?.version}
       latestRelease={latestRelease}
       totalLogs={health?.total_logs}
       storage={health?.storage}
+      onAuthEnabled={() => { bootstrapDoneRef.current = true; setAuthState('authenticated') }}
+      onUiSettingsChanged={setUiSettings}
     />
   }
 
@@ -475,6 +617,30 @@ export default function App() {
               localStorage.setItem('migration_banner_dismissed', '1')
             }}
             className="text-blue-400 hover:text-blue-300 ml-4"
+          >
+            &#x2715;
+          </button>
+        </div>
+      )}
+
+      {/* Reverse proxy not configured toast */}
+      {showProxyToast && (
+        <div className="flex items-center justify-between px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 text-xs text-amber-400">
+          <span>
+            Reverse proxy trust is not configured &mdash; HTTPS detection and IP forwarding may not work.{' '}
+            <button
+              onClick={() => { setShowProxyToast(false); setSettingsInitialSection('security'); setShowSettings(true) }}
+              className="underline hover:text-amber-300"
+            >
+              Configure in Settings &rarr; Security
+            </button>
+          </span>
+          <button
+            onClick={() => {
+              setShowProxyToast(false)
+              sessionStorage.setItem('proxy_toast_dismissed', '1')
+            }}
+            className="text-amber-400 hover:text-amber-300 ml-4"
           >
             &#x2715;
           </button>
@@ -657,6 +823,17 @@ export default function App() {
               </svg>
             )}
           </button>
+          {authState === 'authenticated' && (
+            <button
+              onClick={() => { authLogout().catch(() => { /* intentional: always proceed to login screen even if server unreachable */ }); setAuthState('login') }}
+              className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors"
+              title="Sign Out"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => setShowSettings(true)}
             className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors"
@@ -676,7 +853,7 @@ export default function App() {
 
       {/* Content */}
       <main className="flex-1 overflow-hidden">
-        {activeTab === 'logs' && <LogStream version={health?.version} latestRelease={latestRelease} maxFilterDays={maxFilterDays} drillFilters={logsDrill} onDrillConsumed={clearLogsDrill} interfaces={allInterfaces} onPauseChange={onLogsPauseChange} />}
+        {activeTab === 'logs' && <LogStream version={health?.version} latestRelease={latestRelease} maxFilterDays={maxFilterDays} drillFilters={logsDrill} onDrillConsumed={clearLogsDrill} interfaces={allInterfaces} onPauseChange={onLogsPauseChange} uiSettings={uiSettings} />}
         <Suspense fallback={<DashboardSkeleton />}>
           {activeTab === 'dashboard' && <Dashboard maxFilterDays={maxFilterDays} />}
         </Suspense>

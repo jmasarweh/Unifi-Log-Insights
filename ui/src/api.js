@@ -8,55 +8,84 @@ function buildQS(params) {
   return qs
 }
 
-export async function fetchLogs(params = {}) {
-  const resp = await fetch(`${BASE}/logs?${buildQS(params)}`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
-}
+// ── Auth: global 401 handling ───────────────────────────────────────────────
+// Single handler is sufficient — SPA has one App mount point. An array of
+// handlers would add complexity with no benefit for this architecture.
+let onAuthExpired = null
+export function setAuthExpiredHandler(handler) { onAuthExpired = handler }
 
-export async function fetchLog(id) {
-  const resp = await fetch(`${BASE}/logs/${id}`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
-}
-
-export async function fetchStats(timeRange = '24h') {
-  const resp = await fetch(`${BASE}/stats?time_range=${timeRange}`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
-}
-
-export async function fetchHealth() {
-  const resp = await fetch(`${BASE}/health`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
-}
-
-export async function fetchAbuseIPDBStatus() {
-  const resp = await fetch(`${BASE}/abuseipdb/status`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
-}
-
-export async function enrichIP(ip) {
-  const resp = await fetch(`${BASE}/enrich/${encodeURIComponent(ip)}`, { method: 'POST' })
+async function apiFetch(url, options = {}) {
+  const resp = await fetch(url, { credentials: 'include', ...options })
+  if (resp.status === 401 && onAuthExpired) {
+    onAuthExpired()
+    throw new Error('Session expired')
+  }
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
+    const err = new Error(body.detail || `API error: ${resp.status}`)
+    err.status = resp.status
+    throw err
   }
   return resp.json()
 }
 
+/**
+ * Low-level fetch wrapper: returns the raw Response object.
+ * Only handles 401 (calls onAuthExpired and throws). Does NOT check resp.ok —
+ * callers (e.g. bulkUpdateFirewallLoggingStream) must check resp.ok themselves
+ * and handle non-OK responses appropriately.
+ */
+async function apiFetchRaw(url, options = {}) {
+  const resp = await fetch(url, { credentials: 'include', ...options })
+  if (resp.status === 401 && onAuthExpired) {
+    onAuthExpired()
+    throw new Error('Session expired')
+  }
+  return resp
+}
+
+export async function fetchLogs(params = {}) {
+  return apiFetch(`${BASE}/logs?${buildQS(params)}`)
+}
+
+export async function fetchLog(id) {
+  return apiFetch(`${BASE}/logs/${id}`)
+}
+
+export async function fetchStats(timeRange = '24h') {
+  return apiFetch(`${BASE}/stats?time_range=${timeRange}`)
+}
+
+export async function fetchStatsOverview(timeRange = '24h') {
+  return apiFetch(`${BASE}/stats/overview?time_range=${timeRange}`)
+}
+
+export async function fetchStatsCharts(timeRange = '24h') {
+  return apiFetch(`${BASE}/stats/charts?time_range=${timeRange}`)
+}
+
+export async function fetchStatsTables(timeRange = '24h') {
+  return apiFetch(`${BASE}/stats/tables?time_range=${timeRange}`)
+}
+
+export async function fetchHealth() {
+  return apiFetch(`${BASE}/health`)
+}
+
+export async function fetchAbuseIPDBStatus() {
+  return apiFetch(`${BASE}/abuseipdb/status`)
+}
+
+export async function enrichIP(ip) {
+  return apiFetch(`${BASE}/enrich/${encodeURIComponent(ip)}`, { method: 'POST' })
+}
+
 export async function fetchServices() {
-  const resp = await fetch(`${BASE}/services`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/services`)
 }
 
 export async function fetchProtocols() {
-  const resp = await fetch(`${BASE}/protocols`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/protocols`)
 }
 
 export function getExportUrl(params = {}) {
@@ -66,217 +95,138 @@ export function getExportUrl(params = {}) {
 // ── Flow View API ───────────────────────────────────────────────────────────
 
 export async function fetchIPPairs(params = {}) {
-  const resp = await fetch(`${BASE}/stats/ip-pairs?${buildQS(params)}`)
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
+  return apiFetch(`${BASE}/stats/ip-pairs?${buildQS(params)}`)
 }
 
 export async function fetchFlowGraph(params = {}) {
-  const resp = await fetch(`${BASE}/flows/graph?${buildQS(params)}`)
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
+  return apiFetch(`${BASE}/flows/graph?${buildQS(params)}`)
 }
 
 export async function fetchZoneMatrix(params = {}) {
-  const resp = await fetch(`${BASE}/flows/zone-matrix?${buildQS(params)}`)
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
+  return apiFetch(`${BASE}/flows/zone-matrix?${buildQS(params)}`)
 }
 
 export async function fetchHostDetail(params = {}) {
-  const resp = await fetch(`${BASE}/flows/host-detail?${buildQS(params)}`)
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
+  return apiFetch(`${BASE}/flows/host-detail?${buildQS(params)}`)
 }
 
 // ── Saved Views API ─────────────────────────────────────────────────────────
 
 export async function fetchSavedViews() {
-  const resp = await fetch(`${BASE}/views`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/views`)
 }
 
 export async function createSavedView(name, filters) {
-  const resp = await fetch(`${BASE}/views`, {
+  return apiFetch(`${BASE}/views`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, filters })
   })
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
 }
 
 export async function deleteSavedView(id) {
-  const resp = await fetch(`${BASE}/views/${encodeURIComponent(id)}`, { method: 'DELETE' })
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
+  return apiFetch(`${BASE}/views/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 // ── Threat Map API ──────────────────────────────────────────────────────────
 
 export async function fetchLogsBatch(ids) {
-  const resp = await fetch(`${BASE}/logs/batch`, {
+  return apiFetch(`${BASE}/logs/batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ids })
   })
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
 }
 
 export async function fetchThreatGeo(params = {}) {
-  const resp = await fetch(`${BASE}/threats/geo?${buildQS(params)}`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/threats/geo?${buildQS(params)}`)
 }
 
 // ── Setup Wizard API ──────────────────────────────────────────────────────────
 
 export async function fetchConfig() {
-  const resp = await fetch(`${BASE}/config`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/config`)
 }
 
 export async function fetchWANCandidates() {
-  const resp = await fetch(`${BASE}/setup/wan-candidates`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/setup/wan-candidates`)
 }
 
 export async function fetchNetworkSegments(wanInterfaces = []) {
   const qs = wanInterfaces.length ? `?wan_interfaces=${wanInterfaces.join(',')}` : ''
-  const resp = await fetch(`${BASE}/setup/network-segments${qs}`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/setup/network-segments${qs}`)
 }
 
 export async function saveSetupConfig(config) {
-  const resp = await fetch(`${BASE}/setup/complete`, {
+  return apiFetch(`${BASE}/setup/complete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config)
   })
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
 }
 
 export async function fetchInterfaces() {
-  const resp = await fetch(`${BASE}/interfaces`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/interfaces`)
 }
 
 // ── UniFi Settings API ───────────────────────────────────────────────────────
 
 export async function fetchUniFiSettings() {
-  const resp = await fetch(`${BASE}/settings/unifi`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/settings/unifi`)
 }
 
 export async function updateUniFiSettings(settings) {
-  const resp = await fetch(`${BASE}/settings/unifi`, {
+  return apiFetch(`${BASE}/settings/unifi`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings)
   })
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
 }
 
 export async function testUniFiConnection(params) {
-  const resp = await fetch(`${BASE}/settings/unifi/test`, {
+  return apiFetch(`${BASE}/settings/unifi/test`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params)
   })
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
 }
 
 export async function dismissUpgradeModal() {
-  const resp = await fetch(`${BASE}/settings/unifi/dismiss-upgrade`, { method: 'POST' })
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/settings/unifi/dismiss-upgrade`, { method: 'POST' })
 }
 
 export async function dismissVpnToast() {
-  const resp = await fetch(`${BASE}/settings/unifi/dismiss-vpn-toast`, { method: 'POST' })
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/settings/unifi/dismiss-vpn-toast`, { method: 'POST' })
 }
 
 export async function fetchUniFiNetworkConfig() {
-  const resp = await fetch(`${BASE}/setup/unifi-network-config`)
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
+  return apiFetch(`${BASE}/setup/unifi-network-config`)
 }
 
 // ── Firewall API ─────────────────────────────────────────────────────────────
 
 export async function fetchFirewallPolicies() {
-  const resp = await fetch(`${BASE}/firewall/policies`)
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
+  return apiFetch(`${BASE}/firewall/policies`)
 }
 
 export async function patchFirewallPolicy(policyId, loggingEnabled, origin) {
-  const resp = await fetch(`${BASE}/firewall/policies/${encodeURIComponent(policyId)}`, {
+  return apiFetch(`${BASE}/firewall/policies/${encodeURIComponent(policyId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ loggingEnabled, origin })
   })
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
 }
 
 export async function bulkUpdateFirewallLogging(policies) {
-  const resp = await fetch(`${BASE}/firewall/policies/bulk-logging`, {
+  return apiFetch(`${BASE}/firewall/policies/bulk-logging`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ policies })
   })
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
 }
 
 export async function bulkUpdateFirewallLoggingStream(policies, onProgress) {
-  const resp = await fetch(`${BASE}/firewall/policies/bulk-logging-stream`, {
+  const resp = await apiFetchRaw(`${BASE}/firewall/policies/bulk-logging-stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ policies })
@@ -331,194 +281,119 @@ export async function bulkUpdateFirewallLoggingStream(policies, onProgress) {
 // ── UniFi Device Names (Phase 2) ────────────────────────────────────────────
 
 export async function fetchUniFiStatus() {
-  const resp = await fetch(`${BASE}/unifi/status`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/unifi/status`)
 }
 
 // ── Config Export/Import ─────────────────────────────────────────────────────
 
 export async function exportConfig(includeApiKey = false) {
-  const resp = await fetch(`${BASE}/config/export?include_api_key=${includeApiKey}`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/config/export?include_api_key=${includeApiKey}`)
 }
 
 export async function importConfig(config) {
-  const resp = await fetch(`${BASE}/config/import`, {
+  return apiFetch(`${BASE}/config/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config)
   })
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
 }
 
 // ── VPN Network Configuration ───────────────────────────────────────────────
 
 export async function saveVpnNetworks(vpnNetworks, vpnLabels = {}) {
-  const resp = await fetch(`${BASE}/config/vpn-networks`, {
+  return apiFetch(`${BASE}/config/vpn-networks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ vpn_networks: vpnNetworks, vpn_labels: vpnLabels })
   })
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
 }
 
 // ── Retention Configuration ─────────────────────────────────────────────────
 
 export async function fetchRetentionConfig() {
-  const resp = await fetch(`${BASE}/config/retention`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/config/retention`)
 }
 
 export async function updateRetentionConfig(config) {
-  const resp = await fetch(`${BASE}/config/retention`, {
+  return apiFetch(`${BASE}/config/retention`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config)
   })
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
 }
 
 // ── MCP Settings ────────────────────────────────────────────────────────────
 
 export async function fetchMcpSettings() {
-  const resp = await fetch(`${BASE}/settings/mcp`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/settings/mcp`)
 }
 
 export async function updateMcpSettings(settings) {
-  const resp = await fetch(`${BASE}/settings/mcp`, {
+  return apiFetch(`${BASE}/settings/mcp`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings)
   })
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
 }
 
 export async function fetchMcpScopes() {
-  const resp = await fetch(`${BASE}/settings/mcp/scopes`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
-}
-
-export async function fetchMcpTokens() {
-  const resp = await fetch(`${BASE}/settings/mcp/tokens`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/settings/mcp/scopes`)
 }
 
 export async function fetchMcpAudit(limit = 200, offset = 0) {
-  const resp = await fetch(`${BASE}/settings/mcp/audit?limit=${limit}&offset=${offset}`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
-}
-
-export async function createMcpToken(payload) {
-  const resp = await fetch(`${BASE}/settings/mcp/tokens`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  })
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
-}
-
-export async function revokeMcpToken(tokenId) {
-  const resp = await fetch(`${BASE}/settings/mcp/tokens/${encodeURIComponent(tokenId)}`, {
-    method: 'DELETE'
-  })
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
+  return apiFetch(`${BASE}/settings/mcp/audit?limit=${limit}&offset=${offset}`)
 }
 
 export async function runRetentionCleanup() {
-  const resp = await fetch(`${BASE}/config/retention/cleanup`, { method: 'POST' })
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/config/retention/cleanup`, { method: 'POST' })
 }
 
 // ── UI Settings ─────────────────────────────────────────────────────────
 
 export async function fetchUiSettings() {
-  const resp = await fetch(`${BASE}/settings/ui`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/settings/ui`)
 }
 
 export async function updateUiSettings(settings) {
-  const resp = await fetch(`${BASE}/settings/ui`, {
+  return apiFetch(`${BASE}/settings/ui`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings)
   })
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
 }
 
 // ── Database Migration ───────────────────────────────────────────────────────
 
 export async function testMigrationConnection(params) {
-  const resp = await fetch(`${BASE}/migration/test-connection`, {
+  return apiFetch(`${BASE}/migration/test-connection`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params)
   })
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
 }
 
 export async function startMigration(params) {
-  const resp = await fetch(`${BASE}/migration/start`, {
+  return apiFetch(`${BASE}/migration/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params)
   })
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
 }
 
 export async function getMigrationStatus() {
-  const resp = await fetch(`${BASE}/migration/status`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/migration/status`)
 }
 
 export async function checkMigrationEnv() {
-  const resp = await fetch(`${BASE}/migration/check-env`)
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`)
-  return resp.json()
+  return apiFetch(`${BASE}/migration/check-env`)
 }
 
 export async function patchMigrationCompose(params) {
-  const resp = await fetch(`${BASE}/migration/patch-compose`, {
+  return apiFetch(`${BASE}/migration/patch-compose`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params)
   })
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(body.detail || `API error: ${resp.status}`)
-  }
-  return resp.json()
 }
 
 // ── Version Check ────────────────────────────────────────────────────────────
@@ -551,4 +426,107 @@ export async function fetchAllReleases() {
   if (!resp.ok) return null
   const data = await resp.json()
   return data.map(r => ({ tag: r.tag_name, url: r.html_url, body: r.body || '', prerelease: r.prerelease }))
+}
+
+// ── Auth API ────────────────────────────────────────────────────────────────
+
+export async function fetchAuthStatus() {
+  // Direct fetch (not apiFetch): this is the bootstrap call that determines
+  // whether auth is enabled. A 401 here is not a session expiry — it would
+  // mean the public endpoint itself is broken. Must not trigger onAuthExpired.
+  // Error includes statusText intentionally — richer than status alone for debugging.
+  const resp = await fetch(`${BASE}/auth/status`, { credentials: 'include' })
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}))
+    throw new Error(body.detail || `API error: ${resp.statusText || resp.status}`)
+  }
+  return resp.json()
+}
+
+export async function authLogin(username, password) {
+  // Bypass apiFetch: login 401 means bad credentials, not an expired session
+  const resp = await fetch(`${BASE}/auth/login`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  })
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}))
+    throw new Error(body.detail || `Login failed (${resp.status})`)
+  }
+  return resp.json()
+}
+
+export async function authSetup(username, password) {
+  return apiFetch(`${BASE}/auth/setup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  })
+}
+
+export async function authLogout() {
+  // Direct fetch (not apiFetch): if the session is already expired, apiFetch
+  // would trigger onAuthExpired and throw before the logout completes.
+  // Logout should always succeed so the client can clear local state.
+  const resp = await fetch(`${BASE}/auth/logout`, { method: 'POST', credentials: 'include' })
+  // 401 means session already expired — treat as successful logout
+  if (!resp.ok && resp.status !== 401) {
+    const body = await resp.json().catch(() => ({}))
+    throw new Error(body.detail || `Logout failed (${resp.status})`)
+  }
+  return resp.json().catch(() => ({}))
+}
+
+// Bypasses apiFetch intentionally — /auth/me must work before login
+// (checking session) so it cannot use the shared error-handling wrapper.
+// Error includes statusText intentionally — richer than status alone for debugging.
+// body.detail covers all FastAPI error payloads; body.error is not used by this API.
+export async function fetchAuthMe() {
+  const resp = await fetch(`${BASE}/auth/me`, { credentials: 'include' })
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}))
+    throw new Error(body.detail || `API error: ${resp.statusText || resp.status}`)
+  }
+  return resp.json()
+}
+
+export async function authChangePassword(current_password, new_password) {
+  return apiFetch(`${BASE}/auth/change-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password, new_password })
+  })
+}
+
+export async function updateSessionTtl(hours) {
+  return apiFetch(`${BASE}/auth/session-ttl`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hours })
+  })
+}
+
+export async function fetchProxyToken() {
+  return apiFetch(`${BASE}/auth/proxy-token`)
+}
+
+// ── Token API ───────────────────────────────────────────────────────────────
+
+export async function fetchApiTokens(clientType) {
+  const qs = clientType ? `?client_type=${encodeURIComponent(clientType)}` : ''
+  return apiFetch(`${BASE}/tokens${qs}`)
+}
+
+export async function createApiToken(payload) {
+  return apiFetch(`${BASE}/tokens`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function revokeApiToken(tokenId) {
+  return apiFetch(`${BASE}/tokens/${encodeURIComponent(tokenId)}`, { method: 'DELETE' })
 }

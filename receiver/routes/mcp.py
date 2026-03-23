@@ -1,11 +1,8 @@
 """MCP server endpoints (HTTP + JSON-RPC)."""
 
 import asyncio
-import hmac
 import json
 import logging
-import secrets
-import uuid
 from typing import Any
 from urllib.parse import urlencode
 
@@ -21,6 +18,7 @@ from routes import setup as setup_routes
 from routes import unifi as unifi_routes
 from routes import health as health_routes
 from routes import threats as threats_routes
+from routes.auth import get_forwarded_proto, validate_token_with_effective_scopes
 
 logger = logging.getLogger('api.mcp')
 
@@ -48,10 +46,6 @@ _SCOPE_DESCRIPTIONS = {
 }
 
 
-def _hash_token(token: str, salt: str) -> str:
-    return hmac.new(salt.encode(), token.encode(), 'sha256').hexdigest()
-
-
 def _as_bool(val: Any) -> bool:
     if isinstance(val, bool):
         return val
@@ -71,7 +65,7 @@ def _as_int(val: Any, default: int | None = None) -> int | None:
 
 def _default_allowed_origins(request: Request) -> list[str]:
     host = request.headers.get('host', '')
-    scheme = request.headers.get('x-forwarded-proto') or request.url.scheme
+    scheme = get_forwarded_proto(request)
     if not host:
         return []
     return [f"{scheme}://{host}"]
@@ -102,46 +96,26 @@ def _get_bearer_token(request: Request) -> str | None:
 
 
 def _lookup_token(token: str) -> dict | None:
+    """Validate MCP token using the shared auth token validator.
+
+    Delegates to validate_token_with_effective_scopes from auth module which
+    checks owner_user_id, is_active, disabled status, JOINs user/role info,
+    and computes effective_scopes (token scopes ∩ owner role permissions).
+    Returns the full auth context as-is for scope checks and audit attribution.
+    """
     if not token:
         return None
-    prefix = token[8:16] if len(token) > 16 else token[:8]
-    conn = get_conn()
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                """SELECT id, token_hash, token_salt, scopes, disabled
-                   FROM mcp_tokens
-                   WHERE token_prefix = %s""",
-                [prefix]
-            )
-            rows = cur.fetchall()
-            for row in rows:
-                if row.get('disabled'):
-                    continue
-                expected = row.get('token_hash') or ''
-                salt = row.get('token_salt') or ''
-                if expected and salt and hmac.compare_digest(_hash_token(token, salt), expected):
-                    cur.execute(
-                        "UPDATE mcp_tokens SET last_used_at = NOW() WHERE id = %s",
-                        [row['id']]
-                    )
-                    conn.commit()
-                    return {
-                        'id': row['id'],
-                        'scopes': row.get('scopes') or [],
-                    }
-        conn.commit()
-        return None
-    except Exception:
-        conn.rollback()
-        logger.exception("Token lookup failed")
-        return None
-    finally:
-        put_conn(conn)
+    return validate_token_with_effective_scopes(token)
 
 
 def _require_scope(token_info: dict, required: list[str]) -> None:
-    granted = set(token_info.get('scopes') or [])
+    """Check that the token's effective scopes include all required scopes."""
+    # Explicit None check: empty effective_scopes (set()) means *no* permissions
+    # and must NOT fall through to raw scopes — that would be privilege escalation.
+    # effective_scopes is always a set (assigned by validate_token_with_effective_scopes
+    # via set intersection at auth.py:277-280). No string/invalid type possible.
+    es = token_info.get('effective_scopes')
+    granted = set(es) if es is not None else set(token_info.get('scopes') or [])
     if not set(required).issubset(granted):
         raise PermissionError("Missing required scope")
 
@@ -158,35 +132,50 @@ def _audit_retention_days() -> int:
         return 10
 
 
-# Not thread-safe; intentional low-cost heuristic — cleanup may fire at ~99 or ~101 writes.
-_audit_cleanup_counter = 0
+_SENSITIVE_PARAM_KEYS = frozenset({
+    'password', 'secret', 'token', 'api_key', 'credentials', 'ssn', 'credit_card',
+})
 
 
-def _write_audit(token_id: str, tool_name: str, scope: str, params: dict | None,
+def _sanitize_params(params: dict | None) -> dict:
+    """Redact sensitive keys from params before audit logging.
+
+    Uses substring matching: a key like 'user_password' or 'api_secret_key'
+    is redacted if any token in _SENSITIVE_PARAM_KEYS appears within it.
+    """
+    if not params:
+        return {}
+    def _is_sensitive(key: str) -> bool:
+        kl = key.lower()
+        return any(tok in kl for tok in _SENSITIVE_PARAM_KEYS)
+    return {k: ('***' if _is_sensitive(k) else v) for k, v in params.items()}
+
+
+def _write_audit(token_info: dict, tool_name: str, scope: str, params: dict | None,
                  success: bool, error: str | None = None) -> None:
+    # Won't Fix: raw error logged intentionally — audit entries are admin-only
+    # and error messages from tool execution are needed for debugging. Params
+    # are already sanitized via _sanitize_params; error strings don't contain secrets.
     if not _audit_enabled():
         return
-    global _audit_cleanup_counter
+    token_id = token_info.get('token_id')
+    user_id = token_info.get('owner_user_id')
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO mcp_audit (token_id, tool_name, scope, success, error, params)
-                   VALUES (%s, %s, %s, %s, %s, %s)""",
-                [token_id, tool_name, scope, success, error, json.dumps(params or {}, default=str)]
+                """INSERT INTO audit_log (user_id, token_id, action, detail, created_at)
+                   VALUES (%s, %s, 'api_call', %s, NOW())""",
+                [user_id, token_id, json.dumps({'tool_name': tool_name, 'scope': scope,
+                                        'success': success, 'error': error,
+                                        'params': _sanitize_params(params)}, default=str)]
             )
-            _audit_cleanup_counter += 1
-            if _audit_cleanup_counter >= 100:
-                _audit_cleanup_counter = 0
-                retention = _audit_retention_days()
-                cur.execute(
-                    "DELETE FROM mcp_audit WHERE created_at < NOW() - (%s || ' days')::interval",
-                    [retention]
-                )
         conn.commit()
     except Exception:
+        # Intentionally swallowed: audit is non-critical and must not break MCP tool calls.
+        # The exception is still logged for observability.
         conn.rollback()
-        logger.exception("Failed to write MCP audit entry")
+        logger.exception("Failed to write audit entry")
     finally:
         put_conn(conn)
 
@@ -682,21 +671,21 @@ def _handle_request(payload: dict, token_info: dict | None) -> dict | None:
             _require_scope(token_info or {}, _TOOL_SCOPES[tool_name])
         except PermissionError:
             return _jsonrpc_result(_tool_error("Permission denied"), rpc_id)
-        safe_token_id = (token_info or {}).get('id')
+        safe_token = token_info or {}
         try:
             result = _handle_tool_call(tool_name, args)
             response = _tool_result(result)
-            _write_audit(safe_token_id, tool_name, _TOOL_SCOPES[tool_name][0], args, True)
+            _write_audit(safe_token, tool_name, _TOOL_SCOPES[tool_name][0], args, True)
             return _jsonrpc_result(response, rpc_id)
         except (ValueError, KeyError) as e:
-            _write_audit(safe_token_id, tool_name, _TOOL_SCOPES[tool_name][0], args, False, str(e))
+            _write_audit(safe_token, tool_name, _TOOL_SCOPES[tool_name][0], args, False, str(e))
             return _jsonrpc_result(_tool_error(str(e)), rpc_id)
         except HTTPException as e:
-            _write_audit(safe_token_id, tool_name, _TOOL_SCOPES[tool_name][0], args, False, str(e.detail))
+            _write_audit(safe_token, tool_name, _TOOL_SCOPES[tool_name][0], args, False, str(e.detail))
             return _jsonrpc_result(_tool_error(e.detail), rpc_id)
         except Exception as e:
             logger.exception("Tool call failed: %s", tool_name)
-            _write_audit(safe_token_id, tool_name, _TOOL_SCOPES[tool_name][0], args, False, str(e))
+            _write_audit(safe_token, tool_name, _TOOL_SCOPES[tool_name][0], args, False, str(e))
             return _jsonrpc_result(_tool_error(f"Internal error executing {tool_name}"), rpc_id)
 
     if method == 'resources/list':
@@ -801,92 +790,6 @@ def update_mcp_settings(body: dict):
     return {"success": True}
 
 
-@router.get("/api/settings/mcp/tokens")
-def list_mcp_tokens():
-    conn = get_conn()
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT id, name, token_prefix, scopes, created_at, last_used_at, disabled
-                FROM mcp_tokens
-                ORDER BY created_at DESC
-            """)
-            rows = cur.fetchall()
-        conn.commit()
-        tokens = []
-        for row in rows:
-            item = dict(row)
-            if item.get('created_at'):
-                item['created_at'] = item['created_at'].isoformat()
-            if item.get('last_used_at'):
-                item['last_used_at'] = item['last_used_at'].isoformat()
-            tokens.append(item)
-        return {"tokens": tokens, "total": len(tokens)}
-    except Exception as e:
-        conn.rollback()
-        logger.exception("Failed to list MCP tokens")
-        raise HTTPException(status_code=500, detail="Internal server error") from e
-    finally:
-        put_conn(conn)
-
-
-@router.post("/api/settings/mcp/tokens")
-def create_mcp_token(body: dict):
-    name = (body.get('name') or '').strip() or 'MCP Token'
-    scopes = body.get('scopes') or []
-    if not isinstance(scopes, list) or not scopes:
-        raise HTTPException(status_code=400, detail="scopes list is required")
-    for scope in scopes:
-        if scope not in _SCOPES:
-            raise HTTPException(status_code=400, detail=f"Invalid scope: {scope}")
-
-    token = f"uli-mcp_{secrets.token_urlsafe(32)}"
-    token_id = str(uuid.uuid4())
-    prefix = token[8:16]
-    salt = secrets.token_hex(16)
-    token_hash = _hash_token(token, salt)
-
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """INSERT INTO mcp_tokens
-                   (id, name, token_prefix, token_hash, token_salt, scopes)
-                   VALUES (%s, %s, %s, %s, %s, %s)""",
-                [token_id, name, prefix, token_hash, salt, scopes]
-            )
-        conn.commit()
-        return {"success": True, "token": token, "id": token_id}
-    except Exception as e:
-        conn.rollback()
-        logger.exception("Failed to create MCP token")
-        raise HTTPException(status_code=500, detail="Internal server error") from e
-    finally:
-        put_conn(conn)
-
-
-@router.delete("/api/settings/mcp/tokens/{token_id}")
-def revoke_mcp_token(token_id: str):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE mcp_tokens SET disabled = true WHERE id = %s",
-                [token_id]
-            )
-            if cur.rowcount == 0:
-                raise HTTPException(status_code=404, detail="Token not found")
-        conn.commit()
-        return {"success": True}
-    except HTTPException:
-        raise
-    except Exception as e:
-        conn.rollback()
-        logger.exception("Failed to revoke MCP token")
-        raise HTTPException(status_code=500, detail="Internal server error") from e
-    finally:
-        put_conn(conn)
-
 
 @router.get("/api/settings/mcp/scopes")
 def list_mcp_scopes():
@@ -908,13 +811,14 @@ def list_mcp_audit(limit: int = 200, offset: int = 0):
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT COUNT(*) FROM mcp_audit")
+            cur.execute("SELECT COUNT(*) FROM audit_log WHERE action = 'api_call'")
             total = cur.fetchone()['count']
             cur.execute("""
                 SELECT a.id, a.token_id, t.name as token_name, t.token_prefix,
-                       a.tool_name, a.scope, a.success, a.error, a.params, a.created_at
-                FROM mcp_audit a
-                LEFT JOIN mcp_tokens t ON t.id = a.token_id
+                       a.detail, a.created_at
+                FROM audit_log a
+                LEFT JOIN api_tokens t ON t.id = a.token_id
+                WHERE a.action = 'api_call'
                 ORDER BY a.created_at DESC
                 LIMIT %s OFFSET %s
             """, [limit, offset])
@@ -926,6 +830,18 @@ def list_mcp_audit(limit: int = 200, offset: int = 0):
             item = dict(row)
             if item.get('created_at'):
                 item['created_at'] = item['created_at'].isoformat()
+            # Extract fields from detail JSONB for backward compatibility
+            detail = item.pop('detail', None) or {}
+            if isinstance(detail, str):
+                try:
+                    detail = json.loads(detail)
+                except (json.JSONDecodeError, TypeError):
+                    detail = {}
+            item['tool_name'] = detail.get('tool_name')
+            item['scope'] = detail.get('scope')
+            item['success'] = detail.get('success')
+            item['error'] = detail.get('error')
+            item['params'] = detail.get('params')
             entries.append(item)
 
         return {"entries": entries, "total": total, "limit": limit, "offset": offset}

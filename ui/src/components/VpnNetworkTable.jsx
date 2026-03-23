@@ -79,7 +79,7 @@ export default function VpnNetworkTable({
                     value={entry.badge || ''}
                     onChange={e => onBadgeChange(entry.iface, e.target.value)}
                     placeholder="VPN"
-                    className="w-24 px-2 py-1 rounded bg-gray-900 border border-gray-600 text-sm text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none"
+                    className="w-24 px-2 py-1 rounded bg-black border border-gray-600 text-sm text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                   />
                 </td>
                 <td className="px-4 py-2.5">
@@ -87,7 +87,7 @@ export default function VpnNetworkTable({
                     <select
                       value={entry.type || ''}
                       onChange={e => onTypeChange(entry.iface, e.target.value)}
-                      className={`w-full px-2 py-1 bg-gray-900 border rounded text-sm text-gray-200 focus:border-teal-500 focus:outline-none ${
+                      className={`w-full px-2 py-1 bg-black border rounded text-sm text-gray-200 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 ${
                         warning ? 'border-yellow-500/50' : 'border-gray-600'
                       }`}
                     >
@@ -108,7 +108,7 @@ export default function VpnNetworkTable({
                     value={entry.label || ''}
                     onChange={e => onLabelChange(entry.iface, e.target.value)}
                     placeholder="VPN"
-                    className="w-28 px-2 py-1 rounded bg-gray-900 border border-gray-600 text-sm text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none"
+                    className="w-28 px-2 py-1 rounded bg-black border border-gray-600 text-sm text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                   />
                 </td>
                 <td className="px-4 py-2.5">
@@ -117,7 +117,7 @@ export default function VpnNetworkTable({
                     value={entry.cidr || ''}
                     onChange={e => onCidrChange(entry.iface, e.target.value)}
                     placeholder="e.g., 10.10.70.0/24"
-                    className="w-full px-2 py-1 rounded bg-gray-900 border border-gray-600 text-sm font-mono text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none"
+                    className="w-full px-2 py-1 rounded bg-black border border-gray-600 text-sm font-mono text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                   />
                 </td>
                 {showRemove && (
@@ -173,14 +173,14 @@ function AddRow({ availableTypes, existingInterfaces, onAdd, showSampleIp }) {
             type="text"
             readOnly
             value={addBadge}
-            className="w-24 px-2 py-1 rounded bg-gray-900/50 border border-gray-700 text-sm text-gray-400 cursor-default"
+            className="w-24 px-2 py-1 rounded bg-black/50 border border-gray-700 text-sm text-gray-400 cursor-default"
           />
         </td>
         <td className="px-4 py-2.5">
           <select
             value={addType}
             onChange={e => setAddType(e.target.value)}
-            className="w-full px-2 py-1 bg-gray-900 border border-gray-600 rounded text-sm text-gray-200 focus:border-teal-500 focus:outline-none"
+            className="w-full px-2 py-1 bg-black border border-gray-600 rounded text-sm text-gray-200 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
           >
             <option value="">Select type...</option>
             {availableTypes.map(b => (
@@ -193,7 +193,7 @@ function AddRow({ availableTypes, existingInterfaces, onAdd, showSampleIp }) {
             type="text"
             readOnly
             value={addLabel}
-            className="w-28 px-2 py-1 rounded bg-gray-900/50 border border-gray-700 text-sm text-gray-400 cursor-default"
+            className="w-28 px-2 py-1 rounded bg-black/50 border border-gray-700 text-sm text-gray-400 cursor-default"
           />
         </td>
         <td className="px-4 py-2.5">
@@ -203,7 +203,7 @@ function AddRow({ availableTypes, existingInterfaces, onAdd, showSampleIp }) {
             onChange={e => setAddCidr(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleAdd()}
             placeholder="e.g., 10.10.70.0/24"
-            className="w-full px-2 py-1 rounded bg-gray-900 border border-gray-600 text-sm font-mono text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none"
+            className="w-full px-2 py-1 rounded bg-black border border-gray-600 text-sm font-mono text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
           />
         </td>
         <td className="px-2 py-2.5 text-center">

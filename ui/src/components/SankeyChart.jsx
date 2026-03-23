@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { sankey as d3Sankey, sankeyLinkHorizontal } from 'd3-sankey'
 import { fetchFlowGraph } from '../api'
+import { readCache, writeCache } from '../lib/sessionCache'
 import { formatNumber, formatServiceName, getInterfaceName } from '../utils'
 import NetworkBadge from './NetworkBadge'
 import FullscreenToggle from './FullscreenToggle'
@@ -88,7 +89,7 @@ function SankeyMenuItems({ onSaveView, onLoadView, savedViews, onDeleteView, onD
   )
 }
 
-export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFilter, hostIp, hostSearchInput, onHostSearchChange, onHostSearch, onHostSearchClear, dims, setDims, topN, setTopN, onSaveView, onLoadView, savedViews, onDeleteView, onRefreshViews }) {
+export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFilter, hostIp, hostSearchInput, onHostSearchChange, onHostSearch, onHostSearchClear, dims, setDims, topN, setTopN, onSaveView, onLoadView, savedViews, onDeleteView, onRefreshViews, onDataLoaded, requestKey }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -97,6 +98,7 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
   const [dimMenu, setDimMenu] = useState(null) // { dimIndex, x, y, color }
   const svgRef = useRef(null)
   const containerRef = useRef(null)
+  const refreshKeyRef = useRef(refreshKey)
   const [chartWidth, setChartWidth] = useState(0)
 
   // Measure container width (use clientWidth minus scrollbar to prevent resize loop)
@@ -118,20 +120,27 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
     const n = Number(topN)
     if (!n || n < 1) return
 
+    const params = { ...filters, dimensions: dims.join(','), top_n: n, ip: hostIp || undefined }
+    const disc = [filters.time_range, filters.time_from, filters.time_to, filters.rule_action, filters.direction, dims.join(','), n, hostIp || ''].join('|')
+    const cached = readCache('sankey', disc)
+    if (cached && refreshKey === refreshKeyRef.current) {
+      refreshKeyRef.current = refreshKey
+      setData(cached)
+      setLoading(false)
+      onDataLoaded?.(requestKey)
+      return
+    }
+    refreshKeyRef.current = refreshKey
+
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetchFlowGraph({
-      ...filters,
-      dimensions: dims.join(','),
-      top_n: n,
-      ip: hostIp || undefined,
-    })
-      .then(d => { if (!cancelled) setData(d) })
+    fetchFlowGraph(params)
+      .then(d => { if (!cancelled) { setData(d); writeCache('sankey', disc, d) } })
       .catch(err => { if (!cancelled) setError(err.message) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .finally(() => { if (!cancelled) { setLoading(false); onDataLoaded?.(requestKey) } })
     return () => { cancelled = true }
-  }, [filters.time_range, filters.time_from, filters.time_to, filters.rule_action, filters.direction, dims, topN, hostIp, refreshKey])
+  }, [filters.time_range, filters.time_from, filters.time_to, filters.rule_action, filters.direction, dims, topN, hostIp, refreshKey, requestKey])
 
   const setDim = (index, value) => {
     setDims(prev => {
@@ -412,7 +421,7 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
             value={topN}
             onChange={e => setTopN(e.target.value === '' ? '' : Number(e.target.value))}
             onBlur={() => setTopN(v => Math.max(3, Math.min(50, Number(v) || 3)))}
-            className="w-12 bg-gray-800/50 text-gray-300 text-xs rounded px-1.5 py-0.5 border border-gray-700 text-center focus:outline-none focus:border-gray-500"
+            className="w-12 bg-black text-gray-300 text-xs rounded px-1.5 py-0.5 border border-gray-700 text-center focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
           />
         </div>
 
@@ -427,7 +436,7 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
                 value={hostSearchInput || ''}
                 onChange={e => onHostSearchChange(e.target.value)}
                 onKeyDown={onHostSearch}
-                className="w-24 sm:w-36 bg-gray-800/50 text-gray-300 text-xs rounded px-2 py-0.5 border border-gray-700 placeholder-gray-600 focus:outline-none focus:border-gray-500"
+                className="w-24 sm:w-36 bg-black text-gray-300 text-xs rounded px-2 py-0.5 border border-gray-700 placeholder-gray-600 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
               />
               {(hostSearchInput || hostIp) && (
                 <button

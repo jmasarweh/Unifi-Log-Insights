@@ -10,6 +10,7 @@ from query_helpers import (
     device_name_client_lateral,
     device_name_coalesce,
     device_name_device_lateral,
+    sanitize_csv_cell,
     validate_time_params,
     validate_view_filters,
 )
@@ -316,3 +317,59 @@ class TestDeviceNameCoalesce:
         assert parts[1] == 'c.device_name'
         assert 'd.device_name' in parts
         assert 'd.model' in parts
+
+
+# ── sanitize_csv_cell ───────────────────────────────────────────────────────
+
+class TestSanitizeCsvCell:
+    @pytest.mark.parametrize("prefix", ['=', '+', '@', ';', '\t', '\r', '\n', '\0'])
+    def test_formula_prefixes_sanitized(self, prefix):
+        value = f"{prefix}cmd|'/C calc'"
+        assert sanitize_csv_cell(value) == "'" + value
+
+    def test_dash_non_digit_sanitized(self):
+        assert sanitize_csv_cell("-cmd|'/C calc'") == "'-cmd|'/C calc'"
+
+    def test_dash_digit_preserved(self):
+        assert sanitize_csv_cell("-5") == "-5"
+        assert sanitize_csv_cell("-123.45") == "-123.45"
+        assert sanitize_csv_cell("-.5") == "-.5"
+
+    def test_dash_dot_no_digit_sanitized(self):
+        # "-." is not a negative number — gets sanitized
+        assert sanitize_csv_cell("-.") == "'-."
+
+    def test_dash_alone_sanitized(self):
+        assert sanitize_csv_cell("-") == "'-"
+
+    def test_normal_strings_unchanged(self):
+        assert sanitize_csv_cell("hello") == "hello"
+        assert sanitize_csv_cell("192.168.1.1") == "192.168.1.1"
+        assert sanitize_csv_cell("2024-01-01") == "2024-01-01"
+
+    def test_empty_string_unchanged(self):
+        assert sanitize_csv_cell("") == ""
+
+    def test_formula_chars_mid_string_unchanged(self):
+        assert sanitize_csv_cell("hello=1") == "hello=1"
+        assert sanitize_csv_cell("value+2") == "value+2"
+        assert sanitize_csv_cell("a@b.com") == "a@b.com"
+        assert sanitize_csv_cell("key;val") == "key;val"
+
+    def test_numeric_strings_unchanged(self):
+        assert sanitize_csv_cell("42") == "42"
+        assert sanitize_csv_cell("0") == "0"
+
+    def test_single_quote_prefix_unchanged(self):
+        # Single quote is not in _CSV_FORMULA_PREFIXES — not a formula trigger
+        assert sanitize_csv_cell("'hello") == "'hello"
+
+    def test_whitespace_only_unchanged(self):
+        assert sanitize_csv_cell("   ") == "   "
+
+    def test_none_passthrough(self):
+        assert sanitize_csv_cell(None) is None
+
+    def test_non_string_raises(self):
+        with pytest.raises(TypeError):
+            sanitize_csv_cell(42)

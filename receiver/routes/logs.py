@@ -16,7 +16,7 @@ from deps import get_conn, put_conn, enricher_db, ttl_cache
 from ip_identity import load_identity_config, annotate_record, annotate_ip
 from query_helpers import (build_log_query, validate_time_params,
                           device_name_client_lateral, device_name_device_lateral,
-                          device_name_coalesce)
+                          device_name_coalesce, sanitize_csv_cell)
 from services import get_service_description
 
 
@@ -517,7 +517,7 @@ def export_csv_endpoint(
                     row[vlan_idx] = vlan
                 if vpn_badge and name == 'Gateway':
                     row[net_idx] = vpn_badge
-            writer.writerow([str(v) if v is not None else '' for v in row])
+            writer.writerow([sanitize_csv_cell(str(v)) if v is not None else '' for v in row])
 
         output.seek(0)
         conn.commit()

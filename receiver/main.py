@@ -26,6 +26,7 @@ from enrichment import Enricher
 from backfill import BackfillTask
 from blacklist import BlacklistFetcher
 from unifi_api import UniFiAPI
+from routes.auth import auth_cleanup
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
@@ -240,24 +241,8 @@ def run_scheduler(db: Database, enricher: Enricher, blacklist_fetcher: Blacklist
         except Exception as e:
             logger.error("Retention cleanup failed: %s", e)
 
-        # MCP audit retention (separate so log cleanup failures don't skip this, and vice versa)
-        mcp_audit_days = 10
-        try:
-            mcp_audit_days = get_config(db, 'mcp_audit_retention_days', 10)
-            try:
-                mcp_audit_days = max(1, int(mcp_audit_days))
-            except (ValueError, TypeError):
-                mcp_audit_days = 10
-            with db.get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "DELETE FROM mcp_audit WHERE created_at < NOW() - (%s || ' days')::interval",
-                        [mcp_audit_days]
-                    )
-                    if cur.rowcount > 0:
-                        logger.info("MCP audit cleanup: deleted %d entries older than %d days", cur.rowcount, mcp_audit_days)
-        except Exception as e:
-            logger.error("MCP audit cleanup failed (retention=%s days): %s", mcp_audit_days, e)
+        # Note: audit_log cleanup is handled by auth_cleanup() at 03:30.
+        # Legacy mcp_audit table no longer exists after migration to audit_log.
 
     def pull_blacklist():
         if blacklist_fetcher:
@@ -280,8 +265,10 @@ def run_scheduler(db: Database, enricher: Enricher, blacklist_fetcher: Blacklist
     schedule.every(STATS_INTERVAL_MINUTES).minutes.do(refresh_wan_ip)
     schedule.every().day.at(RETENTION_HOUR).do(retention_cleanup)
     schedule.every().day.at("04:00").do(pull_blacklist)
+    # auth_cleanup has its own internal try/except — no wrapper needed here.
+    schedule.every().day.at("03:30").do(auth_cleanup)
 
-    logger.info("Scheduler started — stats every %dm, retention daily at %s, blacklist daily at 04:00",
+    logger.info("Scheduler started — stats every %dm, retention daily at %s, blacklist daily at 04:00, auth cleanup daily at 03:30",
                  STATS_INTERVAL_MINUTES, RETENTION_HOUR)
 
     # Initial blacklist pull after 30s startup delay
@@ -400,7 +387,7 @@ def main():
     scheduler_thread = threading.Thread(target=run_scheduler, args=(db, enricher, blacklist_fetcher), daemon=True)
     scheduler_thread.start()
 
-    # Start backfill daemon (patches NULL threat scores every 30 min)
+    # Start backfill daemon (queue-driven threat enrichment every 5 min)
     backfill = BackfillTask(db, enricher)
     backfill.start()
 

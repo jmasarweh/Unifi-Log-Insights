@@ -542,6 +542,11 @@ class RDNSEnricher:
 class Enricher:
     """Orchestrates all enrichment for a parsed log entry."""
 
+    # Coalescing TTL for touch/enqueue DB writes (seconds)
+    _COALESCE_TTL = 60.0
+    # Max entries before lazy-pruning the coalescing map
+    _COALESCE_MAP_MAX_SIZE = 256
+
     def __init__(self, db=None, unifi=None):
         self.geoip = GeoIPEnricher()
         self.abuseipdb = AbuseIPDBEnricher(db=db)
@@ -550,6 +555,24 @@ class Enricher:
         self._db = db
         self._known_wan_ip = None
         self._excluded_ips = set()  # WAN IPs, gateway IPs — not enrichable
+        # @coderabbit Accessed only from the single-threaded UDP receive/enrich
+        # loop today, so this coalescing map intentionally does not use a lock.
+        # If enrich() is ever called concurrently, revisit Enricher shared-state
+        # locking.
+        self._recently_touched = {}  # {ip: monotonic_time} — coalescing set for DB writes
+
+        # Pre-load WAN/gateway exclusions from DB so background threads
+        # (backfill) have exclusions before the first enrich() call
+        if db:
+            try:
+                from db import get_config, get_wan_ips_from_config
+                for ip in get_wan_ips_from_config(db):
+                    self._excluded_ips.add(ip)
+                    self.abuseipdb.exclude_ip(ip)
+                for ip in get_config(db, 'gateway_ips') or []:
+                    self._excluded_ips.add(ip)
+            except Exception:
+                logger.debug("Failed to pre-load exclusions from DB", exc_info=True)
 
     def _is_remote_ip(self, ip_str: str) -> bool:
         """Check if IP is remote (enrichable): public, not our WAN, not gateway."""
@@ -560,6 +583,23 @@ class Enricher:
         if ip_str in self._excluded_ips:
             return False
         return True
+
+    def _is_recently_touched(self, ip: str) -> bool:
+        """Check if an IP was touched/enqueued within the coalescing TTL.
+
+        Also prunes expired entries to prevent unbounded growth.
+        """
+        now = time.monotonic()
+        ts = self._recently_touched.get(ip)
+        if ts is not None and (now - ts) < self._COALESCE_TTL:
+            return True
+        # Lazy prune: when map exceeds threshold, remove expired entries
+        if len(self._recently_touched) > self._COALESCE_MAP_MAX_SIZE:
+            cutoff = now - self._COALESCE_TTL
+            self._recently_touched = {
+                k: v for k, v in self._recently_touched.items() if v > cutoff
+            }
+        return False
 
     def enrich(self, parsed: dict) -> dict:
         """Enrich a parsed log entry with GeoIP, ASN, threat, and rDNS data.
@@ -633,6 +673,21 @@ class Enricher:
             threat_data = self.abuseipdb.lookup(ip_to_enrich)
             if threat_data:
                 parsed.update(threat_data)
+                # Touch last_seen_at — coalesced to avoid per-packet DB writes
+                if self._db and not self._is_recently_touched(ip_to_enrich):
+                    try:
+                        self._db.touch_threat_last_seen(ip_to_enrich)
+                    except Exception:
+                        logger.debug("touch_threat_last_seen failed for %s", ip_to_enrich, exc_info=True)
+                    self._recently_touched[ip_to_enrich] = time.monotonic()
+            elif self.abuseipdb.enabled and self._db:
+                # Enqueue for deferred lookup — coalesced, only when AbuseIPDB is configured
+                if not self._is_recently_touched(ip_to_enrich):
+                    try:
+                        self._db.enqueue_threat_backfill(ip_to_enrich, source='live_miss')
+                    except Exception:
+                        logger.debug("enqueue_threat_backfill failed for %s", ip_to_enrich, exc_info=True)
+                    self._recently_touched[ip_to_enrich] = time.monotonic()
 
         return parsed
 

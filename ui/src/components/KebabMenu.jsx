@@ -124,7 +124,7 @@ export function SaveLoadMenuItems({ onSaveView, onLoadView, savedViews, onDelete
             value={saveName}
             onChange={e => { setSaveName(e.target.value); setSaveError(null) }}
             maxLength={100}
-            className={`flex-1 bg-gray-800 text-gray-300 text-xs rounded px-2 py-1 border placeholder-gray-600 focus:outline-none ${saveError ? 'border-red-500/60 focus:border-red-500' : 'border-gray-700 focus:border-gray-500'}`}
+            className={`flex-1 bg-black text-gray-300 text-xs rounded px-2 py-1 border placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500/20 ${saveError ? 'border-red-500/60 focus:border-red-500' : 'border-gray-700 focus:border-teal-500'}`}
             onKeyDown={e => { if (e.key === 'Enter') doSave() }}
           />
           <button

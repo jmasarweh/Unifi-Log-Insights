@@ -163,7 +163,7 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
                     {unifiSettings?.status?.connected ? 'Online' : 'Offline'}
                   </span>
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
+                <div className="text-sm text-gray-500 mt-1">
                   {unifiSettings?.controller_name
                     ? `${unifiSettings.controller_name}${unifiSettings.controller_version ? ` (v${unifiSettings.controller_version})` : ''}`
                     : 'Connected via API'}
@@ -207,9 +207,9 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
                     )}
                   </div>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs font-mono text-gray-500">{wan.iface}</span>
+                    <span className="text-sm font-mono text-gray-500">{wan.iface}</span>
                     {wan.wanIp && (
-                      <span className="text-xs font-mono text-gray-500">
+                      <span className="text-sm font-mono text-gray-500">
                         {wan.wanIp}{wan.tunnelIp ? ` (tunnel: ${wan.tunnelIp})` : ''}
                       </span>
                     )}
@@ -259,9 +259,9 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
                     )}
                   </div>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs font-mono text-gray-500">{net.iface}</span>
+                    <span className="text-sm font-mono text-gray-500">{net.iface}</span>
                     {net.subnet && (
-                      <span className="text-xs font-mono text-gray-600">{net.subnet}</span>
+                      <span className="text-sm font-mono text-gray-600">{net.subnet}</span>
                     )}
                   </div>
                 </div>
@@ -362,10 +362,10 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
                             )}
                           </div>
                           <div className="flex items-center gap-2 mt-1">
-                            {entry.label && <span className="text-xs text-gray-500">{entry.label}</span>}
-                            <span className="text-xs font-mono text-gray-500">{entry.iface}</span>
+                            {entry.label && <span className="text-sm text-gray-500">{entry.label}</span>}
+                            <span className="text-sm font-mono text-gray-500">{entry.iface}</span>
                             {entry.cidr && (
-                              <span className="text-xs font-mono text-gray-600">{entry.cidr}</span>
+                              <span className="text-sm font-mono text-gray-600">{entry.cidr}</span>
                             )}
                           </div>
                         </div>
@@ -381,7 +381,7 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">Unlabelled</h3>
-                      <p className="text-xs text-gray-500 mt-1">Auto-detected from your firewall logs. Labels have been pre-filled where possible — click Configure to review and save.</p>
+                      <p className="text-sm text-gray-500 mt-1">Auto-detected from your firewall logs. Labels have been pre-filled where possible — click Configure to review and save.</p>
                     </div>
                     <button
                       onClick={() => configureDiscovered(unlabeledVpn)}
@@ -406,9 +406,9 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
                               </span>
                             </div>
                             <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs font-mono text-gray-500">{i.name}</span>
+                              <span className="text-sm font-mono text-gray-500">{i.name}</span>
                               {!suggested && (
-                                <span className="text-xs text-yellow-400 italic">type needs verifying</span>
+                                <span className="text-sm text-yellow-400 italic">type needs verifying</span>
                               )}
                             </div>
                           </div>
@@ -433,8 +433,11 @@ export default function SettingsWanNetworks({ unifiEnabled, unifiSettings, wanCa
             </>
           )}
 
-          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded px-3 py-2 mt-3">
-            <p className="text-xs text-yellow-400">
+          <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded px-3 py-2 mt-3">
+            <svg className="w-4 h-4 text-yellow-400 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+            </svg>
+            <p className="text-sm text-yellow-400/90">
               L2TP, Site Magic, and OpenVPN Client detection is based on tentative interface prefixes not yet confirmed on real gateways.
               If detection is incorrect, please report your interface names and prefix on{' '}
               <a href="https://github.com/jmasarweh/unifi-log-insight/issues" target="_blank" rel="noopener noreferrer" className="underline hover:text-yellow-300">GitHub</a> or{' '}

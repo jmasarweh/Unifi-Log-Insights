@@ -1,7 +1,7 @@
 import '../lib/url-utils.js';
 import { DEFAULT_BASE_URL, THREAT_COLORS } from '../lib/constants.js';
-import { getSettings, saveSettings, setCache } from '../lib/storage.js';
-import { checkHealth, fetchUniFiSettings, batchThreatLookup, fetchTrafficStats, setBaseUrl, getBaseUrl } from '../lib/api-client.js';
+import { getSettings, saveSettings, setCache, getApiToken, saveApiToken, clearApiToken, getApiTokenValidated } from '../lib/storage.js';
+import { checkHealth, fetchUniFiSettings, batchThreatLookup, fetchTrafficStats, setBaseUrl, getBaseUrl, setAuthToken, getAuthToken, setAuthErrorHandler } from '../lib/api-client.js';
 
 const SW_LOG_PREFIX = '[ULI][SW]';
 const PERMISSION_RETRY_DELAYS_MS = [0, 150, 350, 800, 1200];
@@ -67,6 +67,14 @@ async function discover() {
   if (discoverRunning) { swLog('discover already running — skipped'); return; }
   discoverRunning = true;
   swLog('discover start');
+
+  // Load API token from storage
+  const storedToken = await getApiToken();
+  if (storedToken) {
+    setAuthToken(storedToken);
+    swLog('API token loaded from storage');
+  }
+
   try {
     const settings = await getSettings();
 
@@ -98,6 +106,14 @@ async function discover() {
     discoverRunning = false;
   }
 }
+
+// Set up 401 handler — show auth error badge
+setAuthErrorHandler(async () => {
+  swWarn('API returned 401 — token revoked or expired');
+  setBadge('!', '#f87171');
+  // Mark token as invalidated so popup shows auth gate on next open
+  try { await chrome.storage.local.set({ apiTokenValidated: false }); } catch (err) { swWarn('failed to persist apiTokenValidated:', err?.message); }
+});
 
 /**
  * Called when Log Insight server is successfully reached.
@@ -258,10 +274,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 async function handleMessage(msg) {
-  // Restore in-memory baseUrl if service worker restarted
+  // Restore in-memory state if service worker restarted
   if (!getBaseUrl()) {
     const s = await getSettings();
     if (s.logInsightUrl) setBaseUrl(s.logInsightUrl);
+  }
+  if (!getAuthToken()) {
+    const storedToken = await getApiToken();
+    if (storedToken) setAuthToken(storedToken);
   }
 
   switch (msg.type) {
@@ -272,13 +292,17 @@ async function handleMessage(msg) {
 
     case 'TRAFFIC_STATS': {
       const stats = await fetchTrafficStats(msg.timeRange || '24h');
+      if (stats && stats._authRequired) return { ok: false, authRequired: true };
       return { ok: !!stats, data: stats };
     }
 
     case 'BATCH_THREAT_LOOKUP': {
       const ips = Array.isArray(msg.ips) ? msg.ips : [];
-      const results = await batchThreatLookup(ips);
-      return { ok: true, data: results };
+      const { results, error } = await batchThreatLookup(ips);
+      if (error) {
+        swWarn('BATCH_THREAT_LOOKUP error:', error);
+      }
+      return { ok: !error, data: results, error };
     }
 
     case 'GET_CONFIG': {
@@ -382,8 +406,83 @@ async function handleMessage(msg) {
       };
     }
 
+    // Won't Fix: SET_API_TOKEN race condition — popup disables the save button during
+    // in-flight requests and chrome.runtime.sendMessage serializes from each sender.
+    case 'SET_API_TOKEN': {
+      const token = typeof msg.token === 'string' ? msg.token.trim() : '';
+      if (!token) {
+        setAuthToken('');
+        await clearApiToken();
+        return { ok: true };
+      }
+      // Validate token before persisting — prevents bad tokens surviving SW restarts
+      if (getBaseUrl()) {
+        setAuthToken(token); // set in-memory for fetchTrafficStats to use
+        let stats;
+        try {
+          stats = await fetchTrafficStats('1h');
+        } catch (err) {
+          setAuthToken(''); // clear in-memory — don't persist
+          setBadge('!', '#f87171');
+          swWarn('token validation failed:', err?.message);
+          return { ok: false, error: 'Token validation failed — check server connectivity' };
+        }
+        if (stats && stats._authRequired) {
+          setAuthToken(''); // clear in-memory — don't persist
+          setBadge('!', '#f87171');
+          return { ok: false, error: 'Token rejected — check it is valid and not expired' };
+        }
+        if (stats) {
+          await saveApiToken(token, { validated: true });
+          swLog('API token saved (validated)');
+          setBadge('', '#34d399');
+          // Auto-discover controller URL now that we have a valid token
+          const settings = await getSettings();
+          if (!settings.controllerUrl) {
+            try {
+              const unifi = await fetchUniFiSettings();
+              if (unifi && unifi.host) {
+                const controllerUrl = unifi.host.replace(/\/+$/, '');
+                await saveSettings({ controllerUrl });
+                await registerContentScripts(controllerUrl, { source: 'SET_API_TOKEN:auto-discovered' });
+                swLog('controller auto-discovered after token save', { controllerUrl });
+              }
+            } catch (err) {
+              swWarn('controller auto-discovery after token save failed:', err?.message);
+            }
+          }
+          return { ok: true, data: stats };
+        }
+        // stats is null — network issue, token may still be valid but unvalidated.
+        // Persist validated:false so the popup can render "Unvalidated" after refresh.
+        await saveApiToken(token, { validated: false });
+        setBadge('?', '#fbbf24');
+        swWarn('token saved but validation inconclusive (network unreachable)');
+        return { ok: true, warning: 'Token saved but could not be validated — network unreachable' };
+      }
+      // No base URL configured yet — persist token for later use
+      setAuthToken(token);
+      await saveApiToken(token);
+      swLog('API token saved (no base URL to validate against)');
+      return { ok: true };
+    }
+
+    case 'GET_API_TOKEN': {
+      const validated = await getApiTokenValidated();
+      return { ok: true, token: getAuthToken(), validated };
+    }
+
+    case 'CLEAR_API_TOKEN': {
+      setAuthToken('');
+      await clearApiToken();
+      swLog('API token cleared');
+      return { ok: true };
+    }
+
     case 'DISCONNECT': {
       setBaseUrl('');
+      setAuthToken('');
+      await clearApiToken();
       setBadge('?', '#fbbf24');
       try {
         await chrome.scripting.unregisterContentScripts({ ids: ['uli-controller'] });

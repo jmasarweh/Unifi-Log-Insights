@@ -55,6 +55,41 @@ Single Docker container. No external dependencies. Zero data collection.
 - **Disk:** 10 GB free for the database volume (`pgdata`) at minimum
 
 These are baseline estimates for a small home network. Higher log volume or longer retention will require more disk.
+> **Docker log rotation** is enabled by default in `docker-compose.yml` (10 MB max, 5 files). If you use a custom compose file, add a [`logging:` section](https://docs.docker.com/compose/compose-file/compose-file-v3/#logging) to prevent unbounded container log growth.
+
+### Authentication (Optional)
+
+ULI supports optional built-in authentication with session cookies and API tokens. When enabled, authentication requires **HTTPS** — the login and setup endpoints will reject requests over plain HTTP to protect credentials in transit.
+
+**Quick start:**
+
+1. Configure HTTPS on your reverse proxy first (authentication requires HTTPS).
+2. Set `AUTH_ENABLED=true` in your `.env` or `docker-compose.yml` environment block and restart the container.
+3. Open the ULI web UI over HTTPS — the Settings → Security page will show a "Create admin account" form.
+4. Create the first admin user (username + password, min 8 characters). This enables authentication immediately.
+5. Subsequent visits will require login. API tokens for MCP or external integrations can be created in Settings → MCP.
+
+> For the full authentication reference (session management, token rotation, reverse proxy security, and audit logging), see [insightsplus.dev/docs/authentication](https://insightsplus.dev/docs/authentication).
+
+**Production:** Place ULI behind a reverse proxy (nginx, Caddy, Traefik) that terminates TLS and sets `X-Forwarded-Proto: https`. ULI reads this header to determine the effective protocol. **Your reverse proxy must overwrite (not forward) any client-supplied `X-Forwarded-Proto` header** — otherwise an attacker can inject the header to bypass the HTTPS requirement. Examples:
+
+```nginx
+# nginx
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+```caddyfile
+# Caddy (automatic — Caddy sets X-Forwarded-Proto by default)
+reverse_proxy localhost:8090
+```
+```yaml
+# Traefik (headers middleware — assumes Traefik terminates TLS)
+labels:
+  - "traefik.http.middlewares.uli-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+```
+
+**Local development:** The Vite dev server proxies API requests to `http://localhost:8000` without TLS. To develop with auth enabled, either:
+- Use a local reverse proxy (e.g. `mkcert` + nginx) in front of the API, or
+- Leave `AUTH_ENABLED=false` (the default) to bypass auth during development.
 
 > **Docker log rotation** is enabled by default in `docker-compose.yml` (10 MB max, 5 files). If you use a custom compose file, add a [`logging:` section](https://docs.docker.com/compose/compose-file/compose-file-v3/#logging) to prevent unbounded container log growth.
 

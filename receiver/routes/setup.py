@@ -250,8 +250,18 @@ def complete_setup(body: dict):
 def list_interfaces():
     """Return all discovered interfaces with their labels and type metadata."""
     labels = get_config(enricher_db, "interface_labels", {})
-    wan_list = set(get_config(enricher_db, "wan_interfaces", ["ppp0"]))
+    if not isinstance(labels, dict):
+        logger.warning("Expected dict for interface_labels config, got %s — using empty", type(labels).__name__)
+        labels = {}
+    raw_wans = get_config(enricher_db, "wan_interfaces", ["ppp0"])
+    if not isinstance(raw_wans, (list, tuple, set)):
+        logger.warning("Expected list for wan_interfaces config, got %s — using default", type(raw_wans).__name__)
+        raw_wans = ["ppp0"]
+    wan_list = set(raw_wans)
     vpn_networks = get_config(enricher_db, "vpn_networks", {})
+    if not isinstance(vpn_networks, dict):
+        logger.warning("Expected dict for vpn_networks config, got %s — using empty", type(vpn_networks).__name__)
+        vpn_networks = {}
 
     # Seed from config — always complete, even if logs were retention-cleaned
     config_ifaces = set(wan_list) | set(labels.keys()) | set(vpn_networks.keys())
@@ -335,6 +345,7 @@ _EXPORTABLE_KEYS = [
     'unifi_controller_name', 'unifi_controller_type',
     'retention_days', 'dns_retention_days',
     'mcp_enabled', 'mcp_audit_enabled', 'mcp_audit_retention_days', 'mcp_allowed_origins',
+    'auth_session_ttl_hours', 'audit_log_retention_days',
     *_UI_SETTINGS_DEFAULTS.keys(),
 ]
 # NOTE: unifi_username, unifi_password, and unifi_site_id are NEVER exported
@@ -418,6 +429,30 @@ def import_config(body: dict):
             if isinstance(val, str):
                 val = [v.strip() for v in val.split(',') if v.strip()]
             elif not isinstance(val, list):
+                failed_keys.append(key)
+                continue
+        elif key == 'vpn_networks':
+            if not isinstance(val, dict):
+                failed_keys.append(key)
+                continue
+        elif key == 'interface_labels':
+            if not isinstance(val, dict):
+                failed_keys.append(key)
+                continue
+        elif key == 'wan_interfaces':
+            if not isinstance(val, list):
+                failed_keys.append(key)
+                continue
+        elif key == 'auth_session_ttl_hours':
+            try:
+                val = max(1, min(8760, int(val)))
+            except (ValueError, TypeError):
+                failed_keys.append(key)
+                continue
+        elif key == 'audit_log_retention_days':
+            try:
+                val = max(1, min(365, int(val)))
+            except (ValueError, TypeError):
                 failed_keys.append(key)
                 continue
         set_config(enricher_db, key, val)

@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { fetchIPPairs } from '../api'
+import { readCache, writeCache } from '../lib/sessionCache'
 import { formatNumber, formatServiceName, resolveIpSublines } from '../utils'
 import IPCell from './IPCell'
 import InfoTooltip from './InfoTooltip'
@@ -53,16 +54,28 @@ function TopIPPairsMenuItems({ onSaveView, onLoadView, savedViews, onDeleteView,
 
 // onIpClick(ip, rowIndex) — rowIndex is used by FlowView's toggle logic:
 // clicking the same IP in the same row closes the panel, different row keeps it open.
-export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearSankeyFilter, zoneFilter, onClearZoneFilter, onIpClick, onSaveView, onLoadView, savedViews, onDeleteView, onRefreshViews }) {
+export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearSankeyFilter, zoneFilter, onClearZoneFilter, onIpClick, onSaveView, onLoadView, savedViews, onDeleteView, onRefreshViews, deferFetch }) {
   const [pairs, setPairs] = useState([])
   const [loading, setLoading] = useState(true)
   const [limit, setLimit] = useState(25)
+  const refreshKeyRef = useRef(refreshKey)
 
   // Build stable dependency key for cross-filters
   const sankeyKey = sankeyFilter ? `${sankeyFilter.type}:${sankeyFilter.value}` : ''
   const zoneKey = zoneFilter ? `${zoneFilter.interface_in}:${zoneFilter.interface_out}` : ''
 
   useEffect(() => {
+    if (deferFetch) return
+
+    const disc = [filters.time_range, filters.time_from, filters.time_to, filters.rule_action, filters.direction, sankeyKey, zoneKey, limit].join('|')
+    const cached = readCache('ip-pairs', disc)
+    if (cached && refreshKey === refreshKeyRef.current) {
+      setPairs(cached)
+      setLoading(false)
+      return
+    }
+    refreshKeyRef.current = refreshKey
+
     let cancelled = false
     setLoading(true)
     const params = { ...filters, limit }
@@ -76,12 +89,12 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
     }
     fetchIPPairs(params)
       .then(data => {
-        if (!cancelled) setPairs(data.pairs || [])
+        if (!cancelled) { setPairs(data.pairs || []); writeCache('ip-pairs', disc, data.pairs || []) }
       })
       .catch(err => console.error('IP pairs fetch failed:', err))
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [filters.time_range, filters.time_from, filters.time_to, filters.rule_action, filters.direction, sankeyKey, zoneKey, limit, refreshKey])
+  }, [deferFetch, filters.time_range, filters.time_from, filters.time_to, filters.rule_action, filters.direction, sankeyKey, zoneKey, limit, refreshKey])
 
   const drillToLogs = (pair) => {
     window.dispatchEvent(new CustomEvent('drillToLogs', {
@@ -112,7 +125,7 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
           <select
             value={limit}
             onChange={e => setLimit(Number(e.target.value))}
-            className="bg-gray-800 text-gray-300 text-xs rounded px-1.5 py-0.5 border border-gray-700"
+            className="bg-black text-gray-300 text-xs rounded px-1.5 py-0.5 border border-gray-700 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
           >
             {[10, 25, 50, 100].map(n => (
               <option key={n} value={n}>{n}</option>

@@ -5,6 +5,8 @@ import SettingsFirewall from './SettingsFirewall'
 import SettingsDataBackups from './SettingsDataBackups'
 import SettingsUserInterface from './SettingsUserInterface'
 import SettingsMCP from './SettingsMCP'
+import SettingsSecurity from './SettingsSecurity'
+import SettingsAPI from './SettingsAPI'
 import SetupWizard from './SetupWizard'
 import ReleaseNotesModal, { isNewerVersion } from './ReleaseNotesModal'
 
@@ -28,8 +30,8 @@ const BASE_SECTIONS = [
     id: 'firewall',
     label: 'Firewall',
     icon: (
-      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-        <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+        <path fillRule="evenodd" clipRule="evenodd" d="M8 5h4v2H8V5Zm5 2V5h4v2h-4Zm5 0h2V5h-2v2ZM7 5H4v2h3V5ZM4 8h1v2H4V8Zm2 2V8h4v2H6Zm5 0h4V8h-4v2Zm5 0V8h4v2h-4ZM3 7v12a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v2Zm5 6v-2h4v2H8Zm5 0v-2h4v2h-4Zm5 0v-2h2v2h-2ZM7 11H4v2h3v-2Zm-3 8v-2h3v2H4Zm4 0v-2h4v2H8Zm10 0h2v-2h-2v2Zm-1 0v-2h-4v2h4Zm3-5v2h-4v-2h4Zm-5 0v2h-4v-2h4Zm-5 0v2H6v-2h4Zm-5 0v2H4v-2h1Z" />
       </svg>
     ),
   },
@@ -54,6 +56,24 @@ const BASE_SECTIONS = [
     ),
   },
   {
+    id: 'security',
+    label: 'Security',
+    icon: (
+      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+      </svg>
+    ),
+  },
+  {
+    id: 'api',
+    label: 'API',
+    icon: (
+      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
+      </svg>
+    ),
+  },
+  {
     id: 'mcp',
     label: 'MCP',
     icon: (
@@ -62,11 +82,11 @@ const BASE_SECTIONS = [
   },
 ]
 
-export default function SettingsOverlay({ onClose, startInReconfig, unlabeledVpn = [], onVpnSaved: onVpnSavedApp, version, latestRelease, totalLogs, storage }) {
+export default function SettingsOverlay({ onClose, startInReconfig, initialSection, unlabeledVpn = [], onVpnSaved: onVpnSavedApp, version, latestRelease, totalLogs, storage, onAuthEnabled, onUiSettingsChanged }) {
   const [config, setConfig] = useState(null)
   const [unifiSettings, setUnifiSettings] = useState(null)
   const [netConfig, setNetConfig] = useState(null)
-  const [activeSection, setActiveSection] = useState('wan-networks')
+  const [activeSection, setActiveSection] = useState(initialSection || 'wan-networks')
   const [reconfigMode, setReconfigMode] = useState(!!startInReconfig)
   const [wizardPath, setWizardPath] = useState(null)
   const [showNotes, setShowNotes] = useState(false)
@@ -196,16 +216,28 @@ export default function SettingsOverlay({ onClose, startInReconfig, unlabeledVpn
             )}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors"
-          aria-label="Close settings"
-        >
+        <div className="flex items-center gap-1">
+          <a
+            href="https://insightsplus.dev/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-2 py-1.5 rounded text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
+            aria-label="Documentation"
+          >
+            Docs
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+          </a>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors"
+            aria-label="Close settings"
+          >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5" aria-hidden="true">
             <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
           </svg>
         </button>
+        </div>
       </header>
 
       {/* Sidebar + Content */}
@@ -305,7 +337,13 @@ export default function SettingsOverlay({ onClose, startInReconfig, unlabeledVpn
                   <SettingsDataBackups totalLogs={totalLogs} storage={storage} />
                 )}
                 {activeSection === 'user-interface' && (
-                  <SettingsUserInterface />
+                  <SettingsUserInterface onSaved={onUiSettingsChanged} />
+                )}
+                {activeSection === 'security' && (
+                  <SettingsSecurity onAuthEnabled={onAuthEnabled} />
+                )}
+                {activeSection === 'api' && (
+                  <SettingsAPI />
                 )}
                 {activeSection === 'mcp' && (
                   <SettingsMCP />

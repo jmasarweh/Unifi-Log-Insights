@@ -51,8 +51,16 @@ body::-webkit-scrollbar {
 }
 
 .logo {
-  width: 24px;
   height: 24px;
+  width: auto;
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #999;
 }
 
 /* Hints */
@@ -165,6 +173,8 @@ body::-webkit-scrollbar {
 .btn-icon:hover { color: #2dd4bf; }
 .btn-icon:focus-visible { outline: 2px solid #2dd4bf; outline-offset: 1px; }
 
+#clear-token-btn { margin-left: 4px; }
+
 .btn-reset {
   display: block;
   width: 100%;
@@ -214,6 +224,10 @@ body::-webkit-scrollbar {
   margin-top: 6px;
 }
 
+.error.auth-hint {
+  color: #fbbf24;
+}
+
 /* Status row */
 .status-row {
   display: flex;
@@ -232,6 +246,7 @@ body::-webkit-scrollbar {
 
 .status-dot.connected { background: #34d399; }
 .status-dot.disconnected { background: #f87171; }
+.status-dot.warning { background: #fbbf24; }
 
 .badge {
   font-size: 11px;
@@ -410,6 +425,11 @@ body::-webkit-scrollbar {
 .status-pill.pending {
   background: #422006;
   color: #fbbf24;
+}
+
+.status-pill.warning {
+  background: #451a03;
+  color: #fb923c;
 }
 
 /* Controller display */
@@ -603,6 +623,11 @@ body[data-theme="light"] .status-pill.pending {
   color: #92400e;
 }
 
+body[data-theme="light"] .status-pill.warning {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
 body[data-theme="light"] .grant-banner,
 body[data-theme="light"] .reload-bar {
   background: #f0fdfa;
@@ -624,6 +649,10 @@ body[data-theme="light"] .port-sep {
 
 body[data-theme="light"] .error {
   color: #dc2626;
+}
+
+body[data-theme="light"] .error.auth-hint {
+  color: #92400e;
 }
 
 body[data-theme="light"] .debug-details {

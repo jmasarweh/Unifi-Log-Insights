@@ -37,8 +37,10 @@ def _derive_fernet_key(postgres_password: str) -> bytes:
 
 
 def _get_secret_key() -> str:
-    """Return the encryption secret: SECRET_KEY > POSTGRES_PASSWORD."""
-    return os.environ.get('SECRET_KEY') or os.environ.get('POSTGRES_PASSWORD', '')
+    """Return the encryption secret: SECRET_KEY > POSTGRES_PASSWORD > DB_PASSWORD."""
+    return (os.environ.get('SECRET_KEY')
+            or os.environ.get('POSTGRES_PASSWORD')
+            or os.environ.get('DB_PASSWORD', ''))
 
 
 def encrypt_api_key(api_key: str) -> str:
@@ -269,32 +271,42 @@ class Database:
                 value JSONB NOT NULL,
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )""",
-            # MCP tokens and audit trail
-            """CREATE TABLE IF NOT EXISTS mcp_tokens (
-                id UUID PRIMARY KEY,
-                name TEXT NOT NULL,
-                token_prefix TEXT NOT NULL,
-                token_hash TEXT NOT NULL,
-                token_salt TEXT NOT NULL,
-                scopes TEXT[] NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                last_used_at TIMESTAMPTZ,
-                disabled BOOLEAN NOT NULL DEFAULT FALSE
-            )""",
-            "CREATE INDEX IF NOT EXISTS idx_mcp_tokens_prefix ON mcp_tokens (token_prefix)",
-            "CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens (disabled) WHERE disabled = false",
-            """CREATE TABLE IF NOT EXISTS mcp_audit (
-                id BIGSERIAL PRIMARY KEY,
-                token_id UUID,
-                tool_name TEXT NOT NULL,
-                scope TEXT,
-                success BOOLEAN NOT NULL,
-                error TEXT,
-                params JSONB,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )""",
-            "CREATE INDEX IF NOT EXISTS idx_mcp_audit_created_at ON mcp_audit (created_at)",
-            "CREATE INDEX IF NOT EXISTS idx_mcp_audit_token_id ON mcp_audit (token_id)",
+            # Legacy MCP tables — only create if not already migrated to api_tokens
+            """DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '_mcp_tokens_backup' AND table_schema = 'public')
+                   AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'api_tokens' AND table_schema = 'public') THEN
+                    CREATE TABLE IF NOT EXISTS mcp_tokens (
+                        id UUID PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        token_prefix TEXT NOT NULL,
+                        token_hash TEXT NOT NULL,
+                        token_salt TEXT NOT NULL,
+                        scopes TEXT[] NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        last_used_at TIMESTAMPTZ,
+                        disabled BOOLEAN NOT NULL DEFAULT FALSE
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_mcp_tokens_prefix ON mcp_tokens (token_prefix);
+                    CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens (disabled) WHERE disabled = false;
+                END IF;
+            END $$""",
+            """DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '_mcp_audit_backup' AND table_schema = 'public')
+                   AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'audit_log' AND table_schema = 'public') THEN
+                    CREATE TABLE IF NOT EXISTS mcp_audit (
+                        id BIGSERIAL PRIMARY KEY,
+                        token_id UUID,
+                        tool_name TEXT NOT NULL,
+                        scope TEXT,
+                        success BOOLEAN NOT NULL,
+                        error TEXT,
+                        params JSONB,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_mcp_audit_created_at ON mcp_audit (created_at);
+                    CREATE INDEX IF NOT EXISTS idx_mcp_audit_token_id ON mcp_audit (token_id);
+                END IF;
+            END $$""",
             # One-time flag: re-enrich logs that were enriched on WAN IP instead of remote IP
             """INSERT INTO system_config (key, value, updated_at)
                VALUES ('enrichment_wan_fix_pending', 'true', NOW())
@@ -380,6 +392,178 @@ class Database:
                         OR addr << 'fe80::/10'
                     )
             $$ LANGUAGE sql IMMUTABLE""",
+            # Auth: roles table
+            """CREATE TABLE IF NOT EXISTS roles (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(50) UNIQUE NOT NULL,
+                permissions     JSONB NOT NULL DEFAULT '[]',
+                is_system       BOOLEAN DEFAULT FALSE,
+                description     TEXT,
+                created_at      TIMESTAMPTZ DEFAULT NOW()
+            )""",
+            # Auth: seed default roles
+            """INSERT INTO roles (name, permissions, is_system, description) VALUES
+                ('admin', '["*"]', TRUE, 'Full access to all features'),
+                ('viewer', '["logs.read", "stats.read", "flows.read", "threats.read", "dashboard.read"]', TRUE, 'Read-only access to logs and dashboards')
+            ON CONFLICT (name) DO NOTHING""",
+            # Auth: users table
+            """CREATE TABLE IF NOT EXISTS users (
+                id              SERIAL PRIMARY KEY,
+                username        VARCHAR(100) UNIQUE NOT NULL,
+                password_hash   TEXT NOT NULL,
+                role_id         INTEGER NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
+                is_active       BOOLEAN DEFAULT TRUE,
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ DEFAULT NOW(),
+                last_login_at   TIMESTAMPTZ
+            )""",
+            # Auth: sessions table
+            "CREATE EXTENSION IF NOT EXISTS pgcrypto",
+            """CREATE TABLE IF NOT EXISTS sessions (
+                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id         INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                token_hash      TEXT NOT NULL,
+                expires_at      TIMESTAMPTZ NOT NULL,
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                ip_address      INET,
+                user_agent      TEXT
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)",
+            "CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)",
+            # Auth: api_tokens table (replaces mcp_tokens)
+            """CREATE TABLE IF NOT EXISTS api_tokens (
+                id              UUID PRIMARY KEY,
+                name            TEXT NOT NULL,
+                token_prefix    TEXT NOT NULL,
+                token_hash      TEXT NOT NULL,
+                token_salt      TEXT NOT NULL,
+                scopes          TEXT[] NOT NULL,
+                client_type     VARCHAR(20) NOT NULL,
+                owner_user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_used_at    TIMESTAMPTZ,
+                disabled        BOOLEAN NOT NULL DEFAULT FALSE
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_api_tokens_prefix ON api_tokens(token_prefix)",
+            "CREATE INDEX IF NOT EXISTS idx_api_tokens_active ON api_tokens(disabled) WHERE disabled = false",
+            "CREATE INDEX IF NOT EXISTS idx_api_tokens_owner ON api_tokens(owner_user_id)",
+            # Auth: audit_log table (replaces mcp_audit)
+            """CREATE TABLE IF NOT EXISTS audit_log (
+                id              BIGSERIAL PRIMARY KEY,
+                user_id         INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                token_id        UUID REFERENCES api_tokens(id) ON DELETE SET NULL,
+                action          VARCHAR(50) NOT NULL,
+                detail          JSONB,
+                ip_address      INET,
+                user_agent      TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON audit_log(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_audit_log_token_id ON audit_log(token_id)",
+            "CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)",
+            "CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at)",
+            # Auth: system_config seed entries
+            # Seed values use ::jsonb casts to store proper JSON types (boolean/number),
+            # not strings — get_config() returns Python bool/int directly.
+            """INSERT INTO system_config (key, value, updated_at) VALUES ('auth_enabled', 'false'::jsonb, NOW()) ON CONFLICT (key) DO NOTHING""",
+            """INSERT INTO system_config (key, value, updated_at) VALUES ('auth_session_ttl_hours', '168'::jsonb, NOW()) ON CONFLICT (key) DO NOTHING""",
+            """INSERT INTO system_config (key, value, updated_at) VALUES ('audit_log_retention_days', '90'::jsonb, NOW()) ON CONFLICT (key) DO NOTHING""",
+            # Auth: migrate mcp_tokens data into api_tokens (guarded — table may not exist)
+            """DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mcp_tokens' AND table_schema = 'public') THEN
+                    INSERT INTO api_tokens (id, name, token_prefix, token_hash, token_salt, scopes, client_type, owner_user_id, created_at, last_used_at, disabled)
+                    SELECT id, name, token_prefix, token_hash, token_salt, scopes, 'mcp', NULL, created_at, last_used_at, disabled
+                    FROM mcp_tokens
+                    WHERE NOT EXISTS (SELECT 1 FROM api_tokens WHERE api_tokens.id = mcp_tokens.id);
+                END IF;
+            END $$""",
+            # Auth: migrate mcp_audit data into audit_log (guarded — table may not exist).
+            # Dedup uses created_at+token_id which is sufficient for this one-time migration
+            # (source table is renamed to _mcp_audit_backup afterwards and never re-run).
+            """DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mcp_audit' AND table_schema = 'public') THEN
+                    INSERT INTO audit_log (token_id, action, detail, created_at)
+                    SELECT token_id, 'api_call', jsonb_build_object('tool_name', tool_name, 'scope', scope, 'success', success, 'error', error, 'params', params), created_at
+                    FROM mcp_audit
+                    WHERE NOT EXISTS (SELECT 1 FROM audit_log WHERE audit_log.created_at = mcp_audit.created_at AND audit_log.token_id IS NOT DISTINCT FROM mcp_audit.token_id);
+                END IF;
+            END $$""",
+            # Auth: rename old mcp_tokens to backup
+            """DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mcp_tokens' AND table_schema = 'public')
+                   AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '_mcp_tokens_backup' AND table_schema = 'public') THEN
+                    ALTER TABLE mcp_tokens RENAME TO _mcp_tokens_backup;
+                END IF;
+            END $$""",
+            # Auth: rename old mcp_audit to backup
+            """DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mcp_audit' AND table_schema = 'public')
+                   AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '_mcp_audit_backup' AND table_schema = 'public') THEN
+                    ALTER TABLE mcp_audit RENAME TO _mcp_audit_backup;
+                END IF;
+            END $$""",
+            # Auth: migration version marker
+            """INSERT INTO system_config (key, value, updated_at) VALUES ('mcp_migration_version', '1'::jsonb, NOW()) ON CONFLICT (key) DO NOTHING""",
+            # ── Issue #67: queue-driven backfill (replaces sweep model) ────
+            # 1. Queue for deferred threat enrichment
+            """CREATE TABLE IF NOT EXISTS threat_backfill_queue (
+                ip            INET PRIMARY KEY,
+                source        TEXT NOT NULL DEFAULT 'live_miss',
+                first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                next_retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                attempts      INTEGER NOT NULL DEFAULT 0,
+                last_error    TEXT
+            )""",
+            """CREATE INDEX IF NOT EXISTS idx_threat_backfill_queue_due
+                ON threat_backfill_queue (next_retry_at, last_seen_at DESC)""",
+            # 2. Track recent activity on ip_threats (eliminates OR JOIN to logs)
+            "ALTER TABLE ip_threats ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()",
+            # Ensure default exists even if column was added by an earlier version without one
+            "ALTER TABLE ip_threats ALTER COLUMN last_seen_at SET DEFAULT NOW()",
+            """UPDATE ip_threats SET last_seen_at = COALESCE(last_seen_at, looked_up_at)
+               WHERE last_seen_at IS NULL""",
+            """CREATE INDEX IF NOT EXISTS idx_ip_threats_reenrich_candidates
+                ON ip_threats (last_seen_at DESC, threat_score DESC)
+                WHERE threat_score > 0
+                  AND abuse_usage_type IS NULL AND abuse_hostnames IS NULL
+                  AND abuse_total_reports IS NULL AND abuse_last_reported IS NULL
+                  AND abuse_is_whitelisted IS NULL AND abuse_is_tor IS NULL""",
+            # 3. Targeted log patch indexes for threat-score repair
+            """CREATE INDEX IF NOT EXISTS idx_logs_fw_block_null_threat_src
+                ON logs (src_ip)
+                WHERE log_type = 'firewall'
+                  AND rule_action = 'block'
+                  AND threat_score IS NULL
+                  AND src_ip IS NOT NULL""",
+            """CREATE INDEX IF NOT EXISTS idx_logs_fw_block_null_threat_dst
+                ON logs (dst_ip)
+                WHERE log_type = 'firewall'
+                  AND rule_action = 'block'
+                  AND threat_score IS NULL
+                  AND dst_ip IS NOT NULL""",
+            # 4. Targeted log patch indexes for abuse-detail repair
+            """CREATE INDEX IF NOT EXISTS idx_logs_fw_block_missing_abuse_src
+                ON logs (src_ip)
+                WHERE log_type = 'firewall'
+                  AND rule_action = 'block'
+                  AND threat_score IS NOT NULL
+                  AND abuse_usage_type IS NULL
+                  AND src_ip IS NOT NULL""",
+            """CREATE INDEX IF NOT EXISTS idx_logs_fw_block_missing_abuse_dst
+                ON logs (dst_ip)
+                WHERE log_type = 'firewall'
+                  AND rule_action = 'block'
+                  AND threat_score IS NOT NULL
+                  AND abuse_usage_type IS NULL
+                  AND dst_ip IS NOT NULL""",
+            # 5. One-shot service-name migration support (ID-cursor reads)
+            """CREATE INDEX IF NOT EXISTS idx_logs_fw_service_name_null_id
+                ON logs (id)
+                WHERE log_type = 'firewall'
+                  AND service_name IS NULL
+                  AND dst_port IS NOT NULL""",
         ]
         # Fix function ownership BEFORE migrations so CREATE OR REPLACE
         # succeeds on the first boot after upgrade (not just the second).
@@ -454,6 +638,53 @@ class Database:
                         logger.critical(
                             "FATAL: Critical index 'idx_logs_timestamp' missing after schema migration. "
                             "The database user '%s' likely lacks CREATE INDEX privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
+                    # Issue #67: validate queue-driven backfill artifacts
+                    vcur.execute("""SELECT 1 FROM information_schema.tables
+                                   WHERE table_schema = 'public' AND table_name = 'threat_backfill_queue'""")
+                    if not vcur.fetchone():
+                        logger.critical(
+                            "FATAL: 'threat_backfill_queue' table missing after schema migration. "
+                            "The database user '%s' likely lacks CREATE TABLE privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
+                    vcur.execute("""SELECT 1 FROM information_schema.columns
+                                   WHERE table_schema = 'public' AND table_name = 'ip_threats'
+                                     AND column_name = 'last_seen_at'""")
+                    if not vcur.fetchone():
+                        logger.critical(
+                            "FATAL: 'ip_threats.last_seen_at' column missing after schema migration. "
+                            "The database user '%s' likely lacks ALTER TABLE privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
+                    # Verify DEFAULT exists — if SET DEFAULT was skipped due to
+                    # InsufficientPrivilege, bulk_upsert_threats() would insert NULLs.
+                    vcur.execute("""SELECT column_default FROM information_schema.columns
+                                   WHERE table_schema = 'public' AND table_name = 'ip_threats'
+                                     AND column_name = 'last_seen_at'""")
+                    col_row = vcur.fetchone()
+                    if not col_row or not col_row[0]:
+                        logger.critical(
+                            "FATAL: 'ip_threats.last_seen_at' has no DEFAULT after schema migration. "
+                            "The database user '%s' likely lacks ALTER TABLE privilege to SET DEFAULT. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
+                    vcur.execute("""SELECT 1 FROM pg_indexes
+                                   WHERE schemaname = 'public'
+                                     AND indexname = 'idx_logs_fw_block_null_threat_src'""")
+                    if not vcur.fetchone():
+                        logger.critical(
+                            "FATAL: Critical index 'idx_logs_fw_block_null_threat_src' missing after "
+                            "schema migration. The database user '%s' likely lacks CREATE INDEX privilege. %s",
                             db_user, grant_hint
                         )
                         sys.exit(1)
@@ -730,8 +961,8 @@ class Database:
                     "INSERT INTO ip_threats (ip, threat_score, threat_categories, "
                     "abuse_usage_type, abuse_hostnames, abuse_total_reports, "
                     "abuse_last_reported, abuse_is_whitelisted, abuse_is_tor, "
-                    "looked_up_at) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) "
+                    "looked_up_at, last_seen_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()) "
                     "ON CONFLICT (ip) DO UPDATE SET "
                     "  threat_score = EXCLUDED.threat_score, "
                     "  threat_categories = EXCLUDED.threat_categories, "
@@ -741,7 +972,8 @@ class Database:
                     "  abuse_last_reported = COALESCE(EXCLUDED.abuse_last_reported, ip_threats.abuse_last_reported), "
                     "  abuse_is_whitelisted = COALESCE(EXCLUDED.abuse_is_whitelisted, ip_threats.abuse_is_whitelisted), "
                     "  abuse_is_tor = COALESCE(EXCLUDED.abuse_is_tor, ip_threats.abuse_is_tor), "
-                    "  looked_up_at = NOW()",
+                    "  looked_up_at = NOW(), "
+                    "  last_seen_at = NOW()",
                     [
                         normalized,
                         threat_data.get('threat_score', 0),
@@ -759,9 +991,10 @@ class Database:
         """Bulk upsert threat scores. entries = [(ip, score, categories), ...].
         
         Uses execute_batch for efficiency. Returns number of rows upserted.
-        Only updates existing rows if the new score is >= the existing score,
-        so a check-API result with categories won't be overwritten by a
-        blacklist entry with just ["blacklist"].
+        The daily blacklist import is treated as a high-signal operator-facing
+        classification. Existing multi-category check-API results are preserved,
+        but rows with only 0/1 categories may be normalized back to
+        ["blacklist"] so the cache keeps the stronger, less noisy label.
         """
         if not entries:
             return 0
@@ -773,7 +1006,7 @@ class Database:
             "  threat_score = GREATEST(ip_threats.threat_score, EXCLUDED.threat_score), "
             "  threat_categories = CASE "
             "    WHEN array_length(ip_threats.threat_categories, 1) > 1 "
-            "      THEN ip_threats.threat_categories "  # keep richer categories from check API
+            "      THEN ip_threats.threat_categories "  # keep existing multi-category detail
             "    ELSE EXCLUDED.threat_categories "
             "  END, "
             "  looked_up_at = NOW()"
@@ -788,6 +1021,297 @@ class Database:
         except Exception:
             logger.exception("Bulk upsert failed")
             return 0
+
+    # ── Threat backfill queue (issue #67) ────────────────────────────────────
+
+    def touch_threat_last_seen(self, ip: str):
+        """Update last_seen_at on an existing ip_threats row (PK lookup)."""
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE ip_threats SET last_seen_at = NOW() WHERE ip = %s",
+                    [ip]
+                )
+
+    def enqueue_threat_backfill(self, ip: str, source: str = 'live_miss'):
+        """Enqueue an IP for deferred AbuseIPDB lookup.
+
+        Uses GREATEST on next_retry_at to preserve worker backoff: if the worker
+        set a future retry time after a 429/timeout, a new sighting won't pull
+        it back to NOW().
+        """
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO threat_backfill_queue "
+                    "(ip, source, first_seen_at, last_seen_at, next_retry_at) "
+                    "VALUES (%s, %s, NOW(), NOW(), NOW()) "
+                    "ON CONFLICT (ip) DO UPDATE "
+                    "SET last_seen_at = NOW(), "
+                    "    next_retry_at = GREATEST(threat_backfill_queue.next_retry_at, NOW())",
+                    [ip, source]
+                )
+
+    def pull_due_queue_batch(self, limit: int = 50) -> list[str]:
+        """Pull a batch of IPs due for backfill lookup.
+
+        Returns bare IP strings (no /32 suffix). Uses FOR UPDATE SKIP LOCKED
+        for single-worker safety.
+        """
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "WITH due AS ("
+                    "  SELECT ip FROM threat_backfill_queue "
+                    "  WHERE next_retry_at <= NOW() "
+                    "  ORDER BY next_retry_at ASC, last_seen_at DESC "
+                    "  LIMIT %s "
+                    "  FOR UPDATE SKIP LOCKED"
+                    ") SELECT host(ip) FROM due",
+                    [limit]
+                )
+                return [row[0] for row in cur.fetchall()]
+
+    def delete_queue_rows(self, ips: list[str]):
+        """Remove successfully processed IPs from the backfill queue."""
+        if not ips:
+            return
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM threat_backfill_queue WHERE ip = ANY(%s::inet[])",
+                    [ips]
+                )
+
+    def fail_queue_rows(self, ips: list[str], error: str, base_delay: int = 300):
+        """Mark queue rows as failed with exponential backoff.
+
+        base_delay is in seconds (default 5 minutes). Backoff doubles per attempt,
+        capped at 24 hours.
+        """
+        if not ips:
+            return
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE threat_backfill_queue "
+                    "SET attempts = attempts + 1, "
+                    "    last_error = %s, "
+                    "    next_retry_at = NOW() + LEAST("
+                    "      make_interval(secs => %s * power(2, attempts)), "
+                    "      INTERVAL '24 hours'"
+                    "    ) "
+                    "WHERE ip = ANY(%s::inet[])",
+                    [error, base_delay, ips]
+                )
+
+    def patch_from_cache_for_ips(self, ips: list[str], wan_ips: list[str]):
+        """Targeted: copy threat data from ip_threats to logs for specific IPs.
+
+        Two passes (src_ip, dst_ip) with WAN IP exclusion.
+        """
+        if not ips:
+            return 0
+        total = 0
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                # Pass 1: src_ip
+                cur.execute(
+                    "UPDATE logs "
+                    "SET threat_score = t.threat_score, "
+                    "    threat_categories = t.threat_categories, "
+                    "    abuse_usage_type = COALESCE(logs.abuse_usage_type, t.abuse_usage_type), "
+                    "    abuse_hostnames = COALESCE(logs.abuse_hostnames, t.abuse_hostnames), "
+                    "    abuse_total_reports = COALESCE(logs.abuse_total_reports, t.abuse_total_reports), "
+                    "    abuse_last_reported = COALESCE(logs.abuse_last_reported, t.abuse_last_reported), "
+                    "    abuse_is_whitelisted = COALESCE(logs.abuse_is_whitelisted, t.abuse_is_whitelisted), "
+                    "    abuse_is_tor = COALESCE(logs.abuse_is_tor, t.abuse_is_tor) "
+                    "FROM ip_threats t "
+                    "WHERE logs.src_ip = t.ip "
+                    "  AND t.ip = ANY(%s::inet[]) "
+                    "  AND NOT (logs.src_ip = ANY(%s::inet[])) "
+                    "  AND logs.threat_score IS NULL "
+                    "  AND logs.log_type = 'firewall' "
+                    "  AND logs.rule_action = 'block'",
+                    [ips, wan_ips]
+                )
+                total += cur.rowcount
+                # Pass 2: dst_ip
+                cur.execute(
+                    "UPDATE logs "
+                    "SET threat_score = t.threat_score, "
+                    "    threat_categories = t.threat_categories, "
+                    "    abuse_usage_type = COALESCE(logs.abuse_usage_type, t.abuse_usage_type), "
+                    "    abuse_hostnames = COALESCE(logs.abuse_hostnames, t.abuse_hostnames), "
+                    "    abuse_total_reports = COALESCE(logs.abuse_total_reports, t.abuse_total_reports), "
+                    "    abuse_last_reported = COALESCE(logs.abuse_last_reported, t.abuse_last_reported), "
+                    "    abuse_is_whitelisted = COALESCE(logs.abuse_is_whitelisted, t.abuse_is_whitelisted), "
+                    "    abuse_is_tor = COALESCE(logs.abuse_is_tor, t.abuse_is_tor) "
+                    "FROM ip_threats t "
+                    "WHERE logs.dst_ip = t.ip "
+                    "  AND t.ip = ANY(%s::inet[]) "
+                    "  AND NOT (logs.dst_ip = ANY(%s::inet[])) "
+                    "  AND logs.threat_score IS NULL "
+                    "  AND logs.log_type = 'firewall' "
+                    "  AND logs.rule_action = 'block'",
+                    [ips, wan_ips]
+                )
+                total += cur.rowcount
+        return total
+
+    def patch_abuse_fields_for_ips(self, ips: list[str], wan_ips: list[str]):
+        """Targeted: copy abuse detail from ip_threats to logs for specific IPs.
+
+        Only updates rows that have a threat_score but are missing abuse detail.
+        Two passes (src_ip, dst_ip) with WAN IP exclusion.
+        """
+        if not ips:
+            return 0
+        total = 0
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                # Pass 1: src_ip
+                cur.execute(
+                    "UPDATE logs "
+                    "SET abuse_usage_type = t.abuse_usage_type, "
+                    "    abuse_hostnames = t.abuse_hostnames, "
+                    "    abuse_total_reports = t.abuse_total_reports, "
+                    "    abuse_last_reported = t.abuse_last_reported, "
+                    "    abuse_is_whitelisted = t.abuse_is_whitelisted, "
+                    "    abuse_is_tor = t.abuse_is_tor, "
+                    "    threat_categories = CASE "
+                    "        WHEN t.threat_categories IS NOT NULL "
+                    "             AND array_length(t.threat_categories, 1) > 0 "
+                    "             AND (logs.threat_categories IS NULL "
+                    "                  OR array_length(logs.threat_categories, 1) IS NULL "
+                    "                  OR array_length(logs.threat_categories, 1) = 0) "
+                    "        THEN t.threat_categories "
+                    "        ELSE logs.threat_categories "
+                    "    END "
+                    "FROM ip_threats t "
+                    "WHERE logs.src_ip = t.ip "
+                    "  AND t.ip = ANY(%s::inet[]) "
+                    "  AND NOT (logs.src_ip = ANY(%s::inet[])) "
+                    "  AND logs.threat_score IS NOT NULL "
+                    "  AND logs.abuse_usage_type IS NULL "
+                    "  AND (t.abuse_usage_type IS NOT NULL OR t.abuse_hostnames IS NOT NULL "
+                    "       OR t.abuse_total_reports IS NOT NULL OR t.abuse_last_reported IS NOT NULL "
+                    "       OR t.abuse_is_whitelisted IS NOT NULL OR t.abuse_is_tor IS NOT NULL) "
+                    "  AND logs.log_type = 'firewall' "
+                    "  AND logs.rule_action = 'block'",
+                    [ips, wan_ips]
+                )
+                total += cur.rowcount
+                # Pass 2: dst_ip
+                cur.execute(
+                    "UPDATE logs "
+                    "SET abuse_usage_type = t.abuse_usage_type, "
+                    "    abuse_hostnames = t.abuse_hostnames, "
+                    "    abuse_total_reports = t.abuse_total_reports, "
+                    "    abuse_last_reported = t.abuse_last_reported, "
+                    "    abuse_is_whitelisted = t.abuse_is_whitelisted, "
+                    "    abuse_is_tor = t.abuse_is_tor, "
+                    "    threat_categories = CASE "
+                    "        WHEN t.threat_categories IS NOT NULL "
+                    "             AND array_length(t.threat_categories, 1) > 0 "
+                    "             AND (logs.threat_categories IS NULL "
+                    "                  OR array_length(logs.threat_categories, 1) IS NULL "
+                    "                  OR array_length(logs.threat_categories, 1) = 0) "
+                    "        THEN t.threat_categories "
+                    "        ELSE logs.threat_categories "
+                    "    END "
+                    "FROM ip_threats t "
+                    "WHERE logs.dst_ip = t.ip "
+                    "  AND t.ip = ANY(%s::inet[]) "
+                    "  AND NOT (logs.dst_ip = ANY(%s::inet[])) "
+                    "  AND logs.threat_score IS NOT NULL "
+                    "  AND logs.abuse_usage_type IS NULL "
+                    "  AND (t.abuse_usage_type IS NOT NULL OR t.abuse_hostnames IS NOT NULL "
+                    "       OR t.abuse_total_reports IS NOT NULL OR t.abuse_last_reported IS NOT NULL "
+                    "       OR t.abuse_is_whitelisted IS NOT NULL OR t.abuse_is_tor IS NOT NULL) "
+                    "  AND logs.log_type = 'firewall' "
+                    "  AND logs.rule_action = 'block'",
+                    [ips, wan_ips]
+                )
+                total += cur.rowcount
+        return total
+
+    def get_stale_threat_candidates(self, limit: int = 10) -> list[str]:
+        """Select IPs from ip_threats that need re-enrichment.
+
+        Prioritizes recently-seen, high-score IPs missing ALL abuse detail.
+        IPs that already have any detail field populated are considered complete.
+        No logs join — uses last_seen_at directly.
+        """
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT host(ip) FROM ip_threats "
+                    "WHERE threat_score > 0 "
+                    "  AND abuse_usage_type IS NULL "
+                    "  AND abuse_hostnames IS NULL "
+                    "  AND abuse_total_reports IS NULL "
+                    "  AND abuse_last_reported IS NULL "
+                    "  AND abuse_is_whitelisted IS NULL "
+                    "  AND abuse_is_tor IS NULL "
+                    "  AND looked_up_at < NOW() - INTERVAL '7 days' "
+                    "ORDER BY last_seen_at DESC NULLS LAST, threat_score DESC "
+                    "LIMIT %s",
+                    [limit]
+                )
+                return [row[0] for row in cur.fetchall()]
+
+    def service_name_backfill_batch(self, last_id: int, batch_size: int = 1000):
+        """Read a batch of firewall logs missing service_name for one-shot migration.
+
+        Returns list of (id, dst_port, protocol) tuples.
+        """
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, dst_port, protocol FROM logs "
+                    "WHERE id > %s "
+                    "  AND log_type = 'firewall' "
+                    "  AND service_name IS NULL "
+                    "  AND dst_port IS NOT NULL "
+                    "ORDER BY id LIMIT %s",
+                    [last_id, batch_size]
+                )
+                return cur.fetchall()
+
+    def patch_service_names(self, updates: list[tuple]):
+        """Batch update service_name for specific log IDs.
+
+        updates = [(id, service_name), ...]
+        """
+        if not updates:
+            return 0
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                extras.execute_batch(
+                    cur,
+                    "UPDATE logs SET service_name = %s WHERE id = %s AND service_name IS NULL",
+                    [(name, log_id) for log_id, name in updates],
+                    page_size=500
+                )
+                return len(updates)
+
+    def get_queue_stats(self) -> dict:
+        """Return queue statistics for logging/monitoring."""
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*), "
+                    "  COUNT(*) FILTER (WHERE next_retry_at <= NOW()), "
+                    "  COUNT(*) FILTER (WHERE attempts > 0) "
+                    "FROM threat_backfill_queue"
+                )
+                row = cur.fetchone()
+                return {
+                    'total': row[0],
+                    'due': row[1],
+                    'retried': row[2],
+                }
 
     # ── System configuration ──────────────────────────────────────────────────
 

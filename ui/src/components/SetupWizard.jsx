@@ -455,7 +455,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                                 onChange={e => handleApiWanInterfaceChange(idx, e.target.value)}
                                 onBlur={() => commitWanEdit(idx)}
                                 onKeyDown={e => { if (e.key === 'Enter') { e.target.blur() } }}
-                                className={`w-24 px-2 py-1 rounded bg-gray-900 border font-mono text-sm text-gray-200 focus:border-blue-500 focus:outline-none ${
+                                className={`w-24 px-2 py-1 rounded bg-black border font-mono text-sm text-gray-200 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 ${
                                   ifaceInvalid ? 'border-red-500/50' :
                                   isGuess && currentIface === w.physical_interface ? 'border-yellow-500/50' : 'border-gray-600'
                                 }`}
@@ -523,7 +523,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                           onChange={(e) => { setManualWanInput(e.target.value); if (manualWanError) setManualWanError('') }}
                           onKeyDown={(e) => e.key === 'Enter' && handleAddManualWan()}
                           placeholder="e.g., eth0, ppp0, eth8"
-                          className="flex-1 max-w-xs px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono text-gray-300 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                          className="flex-1 max-w-xs px-3 py-2 bg-black border border-gray-700 rounded-lg text-sm font-mono text-gray-300 placeholder-gray-500 focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
                         />
                         <button
                           onClick={handleAddManualWan}
@@ -649,7 +649,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                                       value={interfaceLabels[iface] || ''}
                                       onChange={e => handleApiNetworkLabelChange(iface, e.target.value)}
                                       placeholder={wanEntries.length === 1 && wanInterfaces.length === 1 ? 'e.g., WAN' : `e.g., WAN ${idx + 1}`}
-                                      className="w-32 px-2 py-1 rounded bg-gray-900 border border-gray-600 text-sm text-gray-200 placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                                      className="w-32 px-2 py-1 rounded bg-black border border-gray-700 text-sm text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                                     />
                                   </td>
                                 </tr>
@@ -676,7 +676,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                                     value={interfaceLabels[iface] || ''}
                                     onChange={e => handleApiNetworkLabelChange(iface, e.target.value)}
                                     placeholder={`e.g., WAN ${wanEntries.length + i + 1}`}
-                                    className="w-32 px-2 py-1 rounded bg-gray-900 border border-gray-600 text-sm text-gray-200 placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                                    className="w-32 px-2 py-1 rounded bg-black border border-gray-700 text-sm text-gray-200 placeholder-gray-500 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                                   />
                                 </td>
                               </tr>
@@ -722,7 +722,7 @@ export default function SetupWizard({ onComplete, reconfigMode, onCancel, embedd
                                     maxLength={11}
                                     value={interfaceLabels[n.interface] || ''}
                                     onChange={e => handleApiNetworkLabelChange(n.interface, e.target.value)}
-                                    className="w-32 px-2 py-1 rounded bg-gray-900 border border-gray-600 text-sm text-gray-200 focus:border-blue-500 focus:outline-none"
+                                    className="w-32 px-2 py-1 rounded bg-black border border-gray-700 text-sm text-gray-200 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                                   />
                                 </td>
                                 <td className="px-4 py-2.5 font-mono text-sm text-gray-400">

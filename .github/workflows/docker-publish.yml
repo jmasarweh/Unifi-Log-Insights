@@ -34,6 +34,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Fetch release notes
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NOTES=$(gh release view "$GITHUB_REF_NAME" --json body -q .body 2>/dev/null || echo "")
+          echo "notes<<EOFNOTES" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOFNOTES" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -47,6 +57,8 @@ jobs:
             type=semver,pattern={{major}},enable=${{ !contains(github.ref_name, '-') }}
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
             type=raw,value=beta,enable=${{ contains(github.ref_name, '-beta') }}
+          labels: |
+            org.opencontainers.image.description=${{ steps.release.outputs.notes }}
 
       - name: Write version file from git tag
         run: echo "${GITHUB_REF_NAME#v}" > VERSION
@@ -62,3 +74,11 @@ jobs:
           annotations: ${{ steps.meta.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Update GHCR package description
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method PATCH /user/packages/container/unifi-log-insight \
+            -f description="$(echo '${{ steps.release.outputs.notes }}' | head -c 512)" \
+            2>/dev/null || true

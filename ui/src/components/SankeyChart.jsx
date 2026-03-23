@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { sankey as d3Sankey, sankeyLinkHorizontal } from 'd3-sankey'
 import { fetchFlowGraph } from '../api'
+import { readCache, writeCache } from '../lib/sessionCache'
 import { formatNumber, formatServiceName, getInterfaceName } from '../utils'
 import NetworkBadge from './NetworkBadge'
 import FullscreenToggle from './FullscreenToggle'
@@ -88,7 +89,7 @@ function SankeyMenuItems({ onSaveView, onLoadView, savedViews, onDeleteView, onD
   )
 }
 
-export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFilter, hostIp, hostSearchInput, onHostSearchChange, onHostSearch, onHostSearchClear, dims, setDims, topN, setTopN, onSaveView, onLoadView, savedViews, onDeleteView, onRefreshViews, onDataLoaded }) {
+export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFilter, hostIp, hostSearchInput, onHostSearchChange, onHostSearch, onHostSearchClear, dims, setDims, topN, setTopN, onSaveView, onLoadView, savedViews, onDeleteView, onRefreshViews, onDataLoaded, requestKey }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -97,6 +98,7 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
   const [dimMenu, setDimMenu] = useState(null) // { dimIndex, x, y, color }
   const svgRef = useRef(null)
   const containerRef = useRef(null)
+  const refreshKeyRef = useRef(refreshKey)
   const [chartWidth, setChartWidth] = useState(0)
 
   // Measure container width (use clientWidth minus scrollbar to prevent resize loop)
@@ -118,20 +120,26 @@ export default function SankeyChart({ filters, refreshKey, onNodeClick, activeFi
     const n = Number(topN)
     if (!n || n < 1) return
 
+    const params = { ...filters, dimensions: dims.join(','), top_n: n, ip: hostIp || undefined }
+    const disc = [filters.time_range, filters.time_from, filters.time_to, filters.rule_action, filters.direction, dims.join(','), n, hostIp || ''].join('|')
+    const cached = readCache('sankey', disc)
+    if (cached && refreshKey === refreshKeyRef.current) {
+      setData(cached)
+      setLoading(false)
+      onDataLoaded?.(requestKey)
+      return
+    }
+    refreshKeyRef.current = refreshKey
+
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetchFlowGraph({
-      ...filters,
-      dimensions: dims.join(','),
-      top_n: n,
-      ip: hostIp || undefined,
-    })
-      .then(d => { if (!cancelled) setData(d) })
+    fetchFlowGraph(params)
+      .then(d => { if (!cancelled) { setData(d); writeCache('sankey', disc, d) } })
       .catch(err => { if (!cancelled) setError(err.message) })
-      .finally(() => { if (!cancelled) { setLoading(false); onDataLoaded?.() } })
+      .finally(() => { if (!cancelled) { setLoading(false); onDataLoaded?.(requestKey) } })
     return () => { cancelled = true }
-  }, [filters.time_range, filters.time_from, filters.time_to, filters.rule_action, filters.direction, dims, topN, hostIp, refreshKey])
+  }, [filters.time_range, filters.time_from, filters.time_to, filters.rule_action, filters.direction, dims, topN, hostIp, refreshKey, requestKey])
 
   const setDim = (index, value) => {
     setDims(prev => {

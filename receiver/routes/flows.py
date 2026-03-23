@@ -390,10 +390,7 @@ def get_host_detail(
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # 1. Summary — SELECT-level expressions reference the target IP for
-            #    peer counting (CASE) and to pick ASN/rDNS only from rows where
-            #    the target IP was the enriched remote_ip (not a peer's ASN).
-            select_ip_params = [ip, ip, ip]  # CASE peer_count, FILTER asn, FILTER rdns
+            # 1. Summary
             cur.execute(f"""
                 SELECT
                     COUNT(*) AS total_events,
@@ -402,11 +399,11 @@ def get_host_detail(
                     COUNT(DISTINCT CASE WHEN src_ip = %s::inet THEN host(dst_ip) ELSE host(src_ip) END) AS unique_peers,
                     MIN(timestamp) AS first_seen,
                     MAX(timestamp) AS last_seen,
-                    MAX(asn_name) FILTER (WHERE remote_ip = %s::inet) AS asn_name,
-                    MAX(rdns) FILTER (WHERE remote_ip = %s::inet) AS rdns
+                    MAX(asn_name) AS asn_name,
+                    MAX(rdns) AS rdns
                 FROM logs
                 WHERE {host_where}
-            """, select_ip_params + host_params)
+            """, [ip] + host_params)
             summary = dict(cur.fetchone())
             # Convert timestamps to ISO strings
             for k in ('first_seen', 'last_seen'):
@@ -453,8 +450,8 @@ def get_host_detail(
                        COUNT(*) AS count,
                        COUNT(*) FILTER (WHERE rule_action = 'allow') AS allow_count,
                        COUNT(*) FILTER (WHERE rule_action = 'block') AS block_count,
-                       MAX(asn_name) FILTER (WHERE remote_ip = dst_ip) AS asn_name,
-                       MAX(rdns) FILTER (WHERE remote_ip = dst_ip) AS rdns
+                       MAX(asn_name) AS asn_name,
+                       MAX(rdns) AS rdns
                 FROM logs
                 WHERE {src_where} AND dst_ip IS NOT NULL
                 GROUP BY dst_ip
@@ -471,8 +468,8 @@ def get_host_detail(
                        COUNT(*) AS count,
                        COUNT(*) FILTER (WHERE rule_action = 'allow') AS allow_count,
                        COUNT(*) FILTER (WHERE rule_action = 'block') AS block_count,
-                       MAX(asn_name) FILTER (WHERE remote_ip = src_ip) AS asn_name,
-                       MAX(rdns) FILTER (WHERE remote_ip = src_ip) AS rdns
+                       MAX(asn_name) AS asn_name,
+                       MAX(rdns) AS rdns
                 FROM logs
                 WHERE {dst_where} AND src_ip IS NOT NULL
                 GROUP BY src_ip

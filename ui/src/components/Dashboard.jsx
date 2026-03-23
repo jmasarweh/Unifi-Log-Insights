@@ -3,6 +3,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 import { fetchStatsOverview, fetchStatsCharts, fetchStatsTables } from '../api'
 import { formatNumber, FlagIcon, countryName, decodeThreatCategories, LOG_TYPE_STYLES, ACTION_STYLES, formatServiceName, DIRECTION_ICONS, DIRECTION_COLORS } from '../utils'
 import { getThreatLevel } from '../lib/threatPresentation'
+import { readCache, writeCache, CACHE_TTL_MS } from '../lib/sessionCache'
 import NetworkBadge from './NetworkBadge'
 import useTimeRange from '../hooks/useTimeRange'
 
@@ -233,29 +234,8 @@ function TopList({ title, items, renderItem }) {
   )
 }
 
-// ── Cache helpers ────────────────────────────────────────────────────────────
-const CACHE_VERSION = 'v1'
-const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
-
-function cacheKey(tier, timeRange) {
-  return `dashboard:${CACHE_VERSION}:${tier}:${timeRange}`
-}
-
-function readCache(tier, timeRange) {
-  try {
-    const raw = sessionStorage.getItem(cacheKey(tier, timeRange))
-    if (!raw) return null
-    const { fetchedAt, data } = JSON.parse(raw)
-    if (Date.now() - fetchedAt > CACHE_TTL_MS) return null
-    return data
-  } catch (e) { console.warn('Dashboard cache read failed:', e); return null }
-}
-
-function writeCache(tier, timeRange, data) {
-  try {
-    sessionStorage.setItem(cacheKey(tier, timeRange), JSON.stringify({ fetchedAt: Date.now(), data }))
-  } catch (e) { console.warn('Dashboard cache write failed:', e) }
-}
+// Cache prefix — readCache/writeCache imported from lib/sessionCache
+const CACHE_PREFIX = 'dashboard'
 
 export default function Dashboard({ maxFilterDays }) {
   const [timeRange, setTimeRange, visibleRanges] = useTimeRange(maxFilterDays)
@@ -267,9 +247,9 @@ export default function Dashboard({ maxFilterDays }) {
     const epoch = ++requestEpochRef.current
 
     // Read cache first — render immediately if fresh
-    const cachedOverview = readCache('overview', tr)
-    const cachedCharts = readCache('charts', tr)
-    const cachedTables = readCache('tables', tr)
+    const cachedOverview = readCache(CACHE_PREFIX, `overview:${tr}`)
+    const cachedCharts = readCache(CACHE_PREFIX, `charts:${tr}`)
+    const cachedTables = readCache(CACHE_PREFIX, `tables:${tr}`)
 
     if (!isRefresh) {
       // Build initial stats from cache — no null reset, so cached data renders instantly
@@ -285,7 +265,7 @@ export default function Dashboard({ maxFilterDays }) {
 
     const mergeTier = (tier, data) => {
       if (requestEpochRef.current !== epoch) return // stale response guard
-      writeCache(tier, tr, data)
+      writeCache(CACHE_PREFIX, `${tier}:${tr}`, data)
       setStats(prev => ({ ...prev, ...data }))
       setTierStatus(prev => ({ ...prev, [tier]: 'loaded' }))
     }

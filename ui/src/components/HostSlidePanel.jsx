@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { fetchHostDetail } from '../api'
 import { formatNumber, formatServiceName, ACTION_STYLES } from '../utils'
 
-export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
+export default function HostSlidePanel({ ip, filters, onClose, onPeerClick, onBack, canGoBack }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -45,7 +45,18 @@ export default function HostSlidePanel({ ip, filters, onClose, onPeerClick }) {
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-800 shrink-0">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          {canGoBack && (
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-gray-400 hover:text-gray-200 border border-gray-700 hover:border-gray-500 transition-colors shrink-0"
+              aria-label="Go back"
+              type="button"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+              Back
+            </button>
+          )}
           {loading ? (
             <span className="text-xs text-gray-500">Loading...</span>
           ) : error ? (

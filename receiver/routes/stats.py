@@ -582,13 +582,13 @@ def get_ip_pairs(
     WITH pair_counts AS (
         SELECT
             src_ip, dst_ip, dst_port, LOWER(protocol) AS protocol,
-            MODE() WITHIN GROUP (ORDER BY service_name) AS service_name,
+            MAX(service_name) AS service_name,
             COUNT(*) AS total_count,
             COUNT(*) FILTER (WHERE rule_action = 'allow') AS allow_count,
             COUNT(*) FILTER (WHERE rule_action = 'block') AS block_count,
             MAX(threat_score) AS max_threat_score,
-            MODE() WITHIN GROUP (ORDER BY asn_name) FILTER (WHERE asn_name IS NOT NULL) AS asn_name,
-            MODE() WITHIN GROUP (ORDER BY direction) FILTER (WHERE direction IS NOT NULL) AS direction
+            MAX(asn_name) AS asn_name,
+            MAX(direction) AS direction
         FROM logs
         WHERE {where}
           AND src_ip IS NOT NULL AND dst_ip IS NOT NULL

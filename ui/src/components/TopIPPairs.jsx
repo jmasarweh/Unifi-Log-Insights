@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { fetchIPPairs } from '../api'
+import { readCache, writeCache } from '../lib/sessionCache'
 import { formatNumber, formatServiceName, resolveIpSublines } from '../utils'
 import IPCell from './IPCell'
 import InfoTooltip from './InfoTooltip'
@@ -57,6 +58,7 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
   const [pairs, setPairs] = useState([])
   const [loading, setLoading] = useState(true)
   const [limit, setLimit] = useState(25)
+  const refreshKeyRef = useRef(refreshKey)
 
   // Build stable dependency key for cross-filters
   const sankeyKey = sankeyFilter ? `${sankeyFilter.type}:${sankeyFilter.value}` : ''
@@ -64,6 +66,16 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
 
   useEffect(() => {
     if (deferFetch) return
+
+    const disc = [filters.time_range, filters.time_from, filters.time_to, filters.rule_action, filters.direction, sankeyKey, zoneKey, limit].join('|')
+    const cached = readCache('ip-pairs', disc)
+    if (cached && refreshKey === refreshKeyRef.current) {
+      setPairs(cached)
+      setLoading(false)
+      return
+    }
+    refreshKeyRef.current = refreshKey
+
     let cancelled = false
     setLoading(true)
     const params = { ...filters, limit }
@@ -77,7 +89,7 @@ export default function TopIPPairs({ filters, refreshKey, sankeyFilter, onClearS
     }
     fetchIPPairs(params)
       .then(data => {
-        if (!cancelled) setPairs(data.pairs || [])
+        if (!cancelled) { setPairs(data.pairs || []); writeCache('ip-pairs', disc, data.pairs || []) }
       })
       .catch(err => console.error('IP pairs fetch failed:', err))
       .finally(() => { if (!cancelled) setLoading(false) })

@@ -33,8 +33,9 @@ export default function FlowView({ maxFilterDays }) {
   // Sub-tab state
   const [activePanel, setActivePanel] = useState('sankey')
 
-  // Defer ip-pairs until Sankey resolves (avoid concurrent heavy queries)
-  const [sankeyReady, setSankeyReady] = useState(false)
+  // Defer ip-pairs until Sankey resolves (avoid concurrent heavy queries).
+  // Uses request-key matching instead of a boolean to avoid effect-order races on remount.
+  const [sankeyFulfilledKey, setSankeyFulfilledKey] = useState(null)
 
   // Cross-filter state
   const [sankeyFilter, setSankeyFilter] = useState(null)
@@ -42,6 +43,8 @@ export default function FlowView({ maxFilterDays }) {
 
   // Host detail expansion state — { ip, rowIndex } or null
   const [expandedRow, setExpandedRow] = useState(null)
+  // Navigation history stack for host detail drill-down
+  const [hostHistory, setHostHistory] = useState([])
   const [hostSearchInput, setHostSearchInput] = useState('')
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [timeFrom, setTimeFrom] = useState(null)
@@ -97,11 +100,12 @@ export default function FlowView({ maxFilterDays }) {
     setActiveViewName(null)
   }, [activeActions, activeDirections, timeRange, timeFrom, timeTo, dims, topN])
 
-  // Reset ip-pairs deferral when Sankey will re-fetch (semantically equivalent to SankeyChart
-  // fetch deps: activeActions→filters.rule_action, activeDirections→filters.direction, expandedRow?.ip→hostIp)
-  useEffect(() => {
-    setSankeyReady(false)
-  }, [timeRange, timeFrom, timeTo, activeActions, activeDirections, dims, topN, expandedRow?.ip, refreshKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Derive a request key from the same deps SankeyChart uses to fetch.
+  // When sankeyFulfilledKey matches, Sankey has satisfied the current request.
+  const sankeyRequestKey = [timeRange, timeFrom, timeTo,
+    activeActions.length === ACTIONS.length ? null : activeActions.join(','),
+    activeDirections.length === DIRECTIONS.length ? null : activeDirections.join(','),
+    dims.join(','), topN, expandedRow?.ip || '', refreshKey].join('|')
 
   const refreshSavedViews = useCallback(() => {
     fetchSavedViews()
@@ -186,8 +190,8 @@ export default function FlowView({ maxFilterDays }) {
     direction: activeDirections.length === DIRECTIONS.length ? null : activeDirections.join(','),
   }
 
-  const refresh = useCallback(() => { setSankeyReady(false); setRefreshKey(k => k + 1) }, [])
-  const handleSankeyDataLoaded = useCallback(() => setSankeyReady(true), [])
+  const refresh = useCallback(() => setRefreshKey(k => k + 1), [])
+  const handleSankeyDataLoaded = useCallback((key) => setSankeyFulfilledKey(key), [])
 
   // Sankey node click — toggle filter, clear zone filter (mutual exclusivity)
   const handleSankeyNodeClick = useCallback(({ type, value }) => {
@@ -355,6 +359,7 @@ export default function FlowView({ maxFilterDays }) {
               setZoneFilter(null)
               setExpandedRow(null)
               setHostSearchInput('')
+              setHostHistory([])
               setActiveViewName(null)
             }}
             className="shrink-0 text-xs text-gray-400 hover:text-gray-200 transition-colors"
@@ -416,6 +421,7 @@ export default function FlowView({ maxFilterDays }) {
               onDeleteView={handleDeleteView}
               onRefreshViews={refreshSavedViews}
               onDataLoaded={handleSankeyDataLoaded}
+              requestKey={sankeyRequestKey}
             />
           )}
           {activePanel === 'zone-matrix' && (
@@ -445,14 +451,25 @@ export default function FlowView({ maxFilterDays }) {
             savedViews={savedViews}
             onDeleteView={handleDeleteView}
             onRefreshViews={refreshSavedViews}
-            deferFetch={activePanel === 'sankey' && !sankeyReady}
+            deferFetch={activePanel === 'sankey' && sankeyRequestKey !== sankeyFulfilledKey}
           />
           {expandedRow && (
             <HostSlidePanel
               ip={expandedRow.ip}
               filters={filters}
-              onClose={() => { setExpandedRow(null); setHostSearchInput('') }}
-              onPeerClick={(ip) => { setExpandedRow({ ip, rowIndex: -1 }); setHostSearchInput(ip) }}
+              onClose={() => { setExpandedRow(null); setHostSearchInput(''); setHostHistory([]) }}
+              onPeerClick={(ip) => {
+                setHostHistory(prev => [...prev, expandedRow.ip])
+                setExpandedRow({ ip, rowIndex: -1 })
+                setHostSearchInput(ip)
+              }}
+              canGoBack={hostHistory.length > 0}
+              onBack={() => {
+                const prev = hostHistory[hostHistory.length - 1]
+                setHostHistory(h => h.slice(0, -1))
+                setExpandedRow({ ip: prev, rowIndex: -1 })
+                setHostSearchInput(prev)
+              }}
             />
           )}
         </div>

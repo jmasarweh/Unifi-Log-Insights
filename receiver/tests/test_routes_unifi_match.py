@@ -42,6 +42,14 @@ def _make_base_db_mock():
     return mock_db
 
 
+def _enable_unifi_with_features(mock_deps, firewall_management=True):
+    """Set unifi_api.enabled and wire up features.get() on mock_deps."""
+    mock_deps.unifi_api.enabled = True
+    features_mock = MagicMock()
+    features_mock.get = MagicMock(return_value=firewall_management)
+    mock_deps.unifi_api.features = features_mock
+
+
 class _UniFiPermissionError(Exception):
     """Mock replacement for unifi_api.UniFiPermissionError."""
     def __init__(self, msg='', status_code=403):
@@ -126,10 +134,7 @@ class TestMatchLogDisabled:
 
     def test_disabled_when_firewall_management_off(self, unifi_client):
         client, mock_deps = unifi_client
-        mock_deps.unifi_api.enabled = True
-        features_mock = MagicMock()
-        features_mock.get = MagicMock(return_value=False)
-        mock_deps.unifi_api.features = features_mock
+        _enable_unifi_with_features(mock_deps, firewall_management=False)
         resp = client.post('/api/firewall/policies/match-log', json={
             'interface_in': 'br0', 'interface_out': 'eth3',
             'rule_name': 'LAN_WAN-D-100',
@@ -138,15 +143,28 @@ class TestMatchLogDisabled:
         assert resp.json() == {'status': 'disabled'}
 
 
+# ── Permission error handling ─────────────────────────────────────────────────
+
+class TestPermissionError:
+    def test_patch_policy_returns_403_on_permission_error(self, unifi_client):
+        client, mock_deps = unifi_client
+        _enable_unifi_with_features(mock_deps)
+        mock_deps.unifi_api.patch_firewall_policy.side_effect = \
+            _UniFiPermissionError('Insufficient permissions', status_code=403)
+
+        resp = client.patch('/api/firewall/policies/p1', json={
+            'loggingEnabled': True, 'origin': 'USER_DEFINED',
+        })
+        assert resp.status_code == 403
+        assert 'Insufficient permissions' in resp.json()['detail']
+
+
 # ── Cache invalidation hooks ─────────────────────────────────────────────────
 
 class TestCacheInvalidation:
     def test_patch_policy_invalidates_cache(self, unifi_client):
         client, mock_deps = unifi_client
-        mock_deps.unifi_api.enabled = True
-        features_mock = MagicMock()
-        features_mock.get = MagicMock(return_value=True)
-        mock_deps.unifi_api.features = features_mock
+        _enable_unifi_with_features(mock_deps)
         mock_deps.unifi_api.patch_firewall_policy.return_value = {'id': 'p1'}
 
         with patch('routes.unifi.invalidate_fw_cache') as mock_inv:

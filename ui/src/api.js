@@ -195,8 +195,12 @@ export async function dismissUpgradeModal() {
   return apiFetch(`${BASE}/settings/unifi/dismiss-upgrade`, { method: 'POST' })
 }
 
-export async function dismissVpnToast() {
-  return apiFetch(`${BASE}/settings/unifi/dismiss-vpn-toast`, { method: 'POST' })
+export async function dismissVpnToast(interfaces) {
+  return apiFetch(`${BASE}/settings/unifi/dismiss-vpn-toast`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ interfaces }),
+  })
 }
 
 export async function fetchUniFiNetworkConfig() {

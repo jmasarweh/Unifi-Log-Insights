@@ -336,10 +336,9 @@ export default function App() {
   }, [authState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    fetchHealth().then(setHealth).catch(() => {})
-    const interval = setInterval(() => {
-      fetchHealth().then(setHealth).catch(() => {})
-    }, 15000)
+    const checkHealth = () => fetchHealth().then(setHealth).catch(() => {})
+    checkHealth()
+    const interval = setInterval(checkHealth, 15000)
     return () => clearInterval(interval)
   }, [])
 
@@ -369,26 +368,36 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handler)
   }, [showStatusTooltip])
 
-  // Detect unlabeled VPN interfaces and show toast
+  // Detect unlabeled VPN interfaces and show toast (polls every 5 min)
   useEffect(() => {
     if (authState === 'loading' || authState === 'login') return
     if (!config || !configLoaded) return
-    const vpnNets = config.vpn_networks || {}
-    const wanSet = new Set(config.wan_interfaces || [])
 
-    fetchInterfaces().then(data => {
-      const ifaces = data.interfaces || []
-      setAllInterfaces(ifaces)
-      const unlabeled = ifaces.filter(i => {
-        if (wanSet.has(i.name) || i.name.startsWith('br') || i.name.startsWith('eth')) return false
-        if (vpnNets[i.name]) return false
-        return isVpnInterface(i.name)
-      })
-      setUnlabeledVpn(unlabeled)
-      if (!unlabeled.length) { setShowVpnToast(false); return }
-      if (config.vpn_toast_dismissed) return
-      setShowVpnToast(true)
-    }).catch(() => {})
+    const checkVpn = () => {
+      const vpnNets = config.vpn_networks || {}
+      const wanSet = new Set(config.wan_interfaces || [])
+      fetchInterfaces().then(data => {
+        const ifaces = data.interfaces || []
+        setAllInterfaces(ifaces)
+        const unlabeled = ifaces.filter(i => {
+          if (wanSet.has(i.name) || i.name.startsWith('br') || i.name.startsWith('eth')) return false
+          if (vpnNets[i.name]) return false
+          return isVpnInterface(i.name)
+        })
+        setUnlabeledVpn(unlabeled)
+        if (!unlabeled.length) { setShowVpnToast(false); return }
+        // vpn_toast_dismissed is now a list of interface names (was boolean).
+        // API returns [] when the old boolean True is still stored.
+        const dismissedVpn = new Set(Array.isArray(config.vpn_toast_dismissed) ? config.vpn_toast_dismissed : [])
+        const freshUnlabeled = unlabeled.filter(i => !dismissedVpn.has(i.name))
+        if (!freshUnlabeled.length) { setShowVpnToast(false); return }
+        setShowVpnToast(true)
+      }).catch(() => {})
+    }
+
+    checkVpn()
+    const interval = setInterval(checkVpn, 300000)
+    return () => clearInterval(interval)
   }, [authState, config, configLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check UniFi controller connection status and show toast if disconnected
@@ -708,13 +717,14 @@ export default function App() {
             </button>
             {' | '}
             <button
-              onClick={() => { setShowVpnToast(false); dismissVpnToast().catch(() => {}) }}
+              onClick={() => { setShowVpnToast(false); dismissVpnToast(unlabeledVpn.map(i => i.name)).then(() => reloadConfig()).catch(() => {}) }}
               className="underline hover:text-teal-300"
             >
               Dismiss
             </button>
           </span>
           <button
+            data-testid="vpn-toast-close"
             onClick={() => setShowVpnToast(false)}
             className="text-teal-400 hover:text-teal-300 ml-4"
           >

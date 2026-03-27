@@ -189,10 +189,28 @@ def dismiss_upgrade():
     return {"success": True}
 
 
+def _normalize_dismissed_interfaces(value) -> list[str]:
+    """Normalize a list of interface names: keep non-blank strings, trim, deduplicate."""
+    if not isinstance(value, list):
+        return []
+    return list(dict.fromkeys(
+        s.strip() for s in value if isinstance(s, str) and s.strip()
+    ))
+
+
 @router.post("/api/settings/unifi/dismiss-vpn-toast")
-def dismiss_vpn_toast():
-    """Permanently dismiss the VPN toast."""
-    set_config(enricher_db, 'vpn_toast_dismissed', True)
+def dismiss_vpn_toast(body: dict):
+    """Dismiss VPN toast for specific interfaces."""
+    raw = body.get('interfaces')
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="interfaces must be a list")
+    cleaned = _normalize_dismissed_interfaces(raw)
+    existing = _normalize_dismissed_interfaces(
+        get_config(enricher_db, 'vpn_toast_dismissed', [])
+    )
+    merged = list(dict.fromkeys(existing + cleaned))
+    if merged != existing:
+        set_config(enricher_db, 'vpn_toast_dismissed', merged)
     return {"success": True}
 
 

@@ -24,6 +24,28 @@ logger = logging.getLogger('api.setup')
 router = APIRouter()
 
 
+def _read_dismissed_list(config_key: str) -> list:
+    """Read a toast-dismissal list, coercing legacy boolean True → []."""
+    val = get_config(enricher_db, config_key, [])
+    return val if isinstance(val, list) else []
+
+
+def _prune_dismissed(config_key: str, configured_ifaces: set) -> None:
+    """Remove configured interfaces from a toast-dismissal list.
+
+    Legacy note: vpn_toast_dismissed was previously a boolean (True = dismiss
+    all). It now stores a list of interface names. If we read back True or any
+    non-list value, we treat it as [] (no per-interface dismissals) so the old
+    global dismiss is silently dropped and new VPNs can trigger the toast again.
+    """
+    dismissed = get_config(enricher_db, config_key, []) or []
+    if not isinstance(dismissed, list):
+        dismissed = []
+    pruned = [i for i in dismissed if i not in configured_ifaces]
+    if pruned != dismissed:
+        set_config(enricher_db, config_key, pruned)
+
+
 @router.get("/api/config")
 def get_current_config():
     """Return current system configuration."""
@@ -36,7 +58,11 @@ def get_current_config():
         "unifi_enabled": unifi_api.enabled,
         "vpn_networks": get_config(enricher_db, "vpn_networks", {}),
         "wan_ip_by_iface": get_config(enricher_db, "wan_ip_by_iface", {}),
-        "vpn_toast_dismissed": get_config(enricher_db, "vpn_toast_dismissed", False),
+        # vpn_toast_dismissed was previously a boolean (True = dismiss all).
+        # It now stores a list of dismissed interface names. If the stored
+        # value is the old boolean True, we expose [] so the frontend sees
+        # "nothing dismissed" and new VPNs trigger the toast again.
+        "vpn_toast_dismissed": _read_dismissed_list("vpn_toast_dismissed"),
         **{k: get_config(enricher_db, k, v) for k, v in _UI_SETTINGS_DEFAULTS.items()},
         "mcp_enabled": get_config(enricher_db, "mcp_enabled", False),
         "mcp_audit_enabled": get_config(enricher_db, "mcp_audit_enabled", False),
@@ -202,6 +228,8 @@ def complete_setup(body: dict):
     set_config(enricher_db, "interface_labels", body.get("interface_labels", {}))
     if "vpn_networks" in body:
         set_config(enricher_db, "vpn_networks", body["vpn_networks"])
+        _prune_dismissed("vpn_toast_dismissed",
+                         set((body.get("vpn_networks") or {}).keys()))
     set_config(enricher_db, "setup_complete", True)
     set_config(enricher_db, "config_version", 2)
 
@@ -559,6 +587,7 @@ def save_vpn_networks(body: dict):
         else:
             labels.pop(iface, None)
     set_config(enricher_db, 'interface_labels', labels)
+    _prune_dismissed("vpn_toast_dismissed", set(vpn.keys()))
     invalidate_fw_cache()
     signal_receiver()
     return {"success": True}

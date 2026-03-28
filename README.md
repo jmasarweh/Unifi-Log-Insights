@@ -1,7 +1,7 @@
 # UniFi Insights Plus (formerly Unifi Log Insight) [![GitHub Stars](https://img.shields.io/github/stars/jmasarweh/Unifi-Log-Insights)](https://github.com/jmasarweh/Unifi-Log-Insights/stargazers) 
 
 [![GitHub Release](https://img.shields.io/github/v/release/jmasarweh/Unifi-Log-Insights)](https://github.com/jmasarweh/Unifi-Log-Insights/releases/latest)
-[![GHCR Pulls](https://img.shields.io/badge/ghcr.io%20pulls-13.7k+-blue)](https://github.com/jmasarweh/Unifi-Log-Insights/pkgs/container/unifi-log-insight) [![Chrome Web Store](https://img.shields.io/chrome-web-store/v/dlpkbnjhbhkijfkgnmnbohbokdfoimge?label=chrome-extension)](https://chromewebstore.google.com/detail/unifi-insights-plus/dlpkbnjhbhkijfkgnmnbohbokdfoimge)
+[![Downloads](https://img.shields.io/badge/downloads-14.1k+-blue)](https://github.com/jmasarweh/Unifi-Log-Insights/pkgs/container/unifi-log-insight) [![Chrome Web Store](https://img.shields.io/chrome-web-store/v/dlpkbnjhbhkijfkgnmnbohbokdfoimge?label=chrome-extension)](https://chromewebstore.google.com/detail/unifi-insights-plus/dlpkbnjhbhkijfkgnmnbohbokdfoimge)
 [![Firefox Add-ons](https://img.shields.io/amo/v/unifi-insights-plus?label=firefox-addon)](https://addons.mozilla.org/en-US/firefox/addon/unifi-insights-plus/) [![Tests](https://img.shields.io/github/actions/workflow/status/jmasarweh/Unifi-Log-Insights/test.yml?branch=main&label=tests)](https://github.com/jmasarweh/Unifi-Log-Insights/actions/workflows/test.yml)
 [![Docker Build](https://img.shields.io/github/actions/workflow/status/jmasarweh/Unifi-Log-Insights/docker-publish.yml?label=docker%20build)](https://github.com/jmasarweh/Unifi-Log-Insights/actions/workflows/docker-publish.yml)
 

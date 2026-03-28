@@ -4,6 +4,8 @@ services:
     pull_policy: always
     container_name: unifi-log-insight
     restart: unless-stopped
+    shm_size: '256mb'   # required — Docker default 64MB is exhausted by
+                        # parallel workers (work_mem × max_parallel_workers_per_gather)
     logging:
       driver: "json-file"
       options:

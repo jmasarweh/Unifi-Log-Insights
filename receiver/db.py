@@ -264,7 +264,19 @@ class Database:
             "ALTER TABLE logs ADD COLUMN IF NOT EXISTS service_name TEXT",
             "CREATE INDEX IF NOT EXISTS idx_logs_service_name ON logs (service_name) WHERE service_name IS NOT NULL",
             # Normalize protocol to lowercase for index optimization
-            "UPDATE logs SET protocol = LOWER(protocol) WHERE protocol IS NOT NULL AND protocol != LOWER(protocol)",
+            # Idempotency check: skip full scan if data is already normalized (common case)
+            """DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM logs
+    WHERE protocol IS NOT NULL
+      AND protocol != LOWER(protocol)
+    LIMIT 1
+  ) THEN
+    UPDATE logs SET protocol = LOWER(protocol)
+    WHERE protocol IS NOT NULL AND protocol != LOWER(protocol);
+  END IF;
+END $$;""",
             # System configuration table for dynamic settings
             """CREATE TABLE IF NOT EXISTS system_config (
                 key TEXT PRIMARY KEY,

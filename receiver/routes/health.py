@@ -21,7 +21,18 @@ def health():
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*), MIN(timestamp), MAX(timestamp) FROM logs")
+            # Use pg_class catalog estimate instead of COUNT(*) full scan.
+            # On large tables (100M+ rows) the exact COUNT takes 5-7s per call and
+            # causes persistent /api/health 503 errors via statement_timeout.
+            # reltuples is updated by autovacuum and accurate to ~1% on active tables.
+            cur.execute("""
+                SELECT
+                    reltuples::bigint  AS count,
+                    NULL::timestamptz  AS min_timestamp,
+                    NULL::timestamptz  AS max_timestamp
+                FROM pg_class
+                WHERE relname = 'logs'
+            """)
             row = cur.fetchone()
             total, oldest, latest = row[0], row[1], row[2]
         conn.commit()

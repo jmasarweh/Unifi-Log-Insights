@@ -56,6 +56,15 @@ CREATE INDEX IF NOT EXISTS idx_logs_service_name ON logs (service_name) WHERE se
 CREATE INDEX IF NOT EXISTS idx_logs_type_time    ON logs (log_type, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_action_time  ON logs (rule_action, timestamp DESC);
 
+-- Partial index for non-DNS retention cleanup batches.
+-- run_retention_cleanup() deletes WHERE log_type != 'dns' AND timestamp < cutoff.
+-- Without this index the non-DNS pass cannot use idx_logs_type_time (equality-only
+-- on log_type) and falls back to a sequential scan on 165M rows.
+-- With this index each LIMIT-N batch resolves as a constant O(N) range scan.
+CREATE INDEX IF NOT EXISTS idx_logs_nondns_timestamp
+    ON logs (timestamp DESC)
+    WHERE log_type != 'dns';
+
 -- Composite index for flow aggregation (Sankey + IP Pairs)
 CREATE INDEX IF NOT EXISTS idx_logs_flow_agg
     ON logs (timestamp DESC, src_ip, dst_ip, dst_port, protocol)

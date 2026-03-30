@@ -38,11 +38,7 @@ def health():
 
             # MIN/MAX on idx_logs_timestamp btree: two index edge lookups (~1ms)
             cur.execute("SELECT MIN(timestamp), MAX(timestamp) FROM logs")
-            row = cur.fetchone()
-            if row is None:
-                oldest, latest = None, None
-            else:
-                oldest, latest = row[0], row[1]
+            oldest, latest = cur.fetchone()
         conn.commit()
 
         # Retention days: system_config > env > default

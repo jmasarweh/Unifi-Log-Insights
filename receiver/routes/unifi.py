@@ -7,6 +7,7 @@ import queue
 import threading
 
 import requests as _requests
+from requests.exceptions import ConnectionError as RequestsConnectionError, SSLError
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
@@ -177,9 +178,18 @@ def unifi_network_config():
         raise HTTPException(status_code=400, detail="UniFi API not configured")
     try:
         return unifi_api.get_network_config()
+    except SSLError:
+        logger.exception("Failed to fetch UniFi network config")
+        raise HTTPException(status_code=502,
+            detail="SSL certificate verification failed. If using a self-signed certificate, enable 'Skip SSL verification' in UniFi settings.")
+    except RequestsConnectionError:
+        logger.exception("Failed to fetch UniFi network config")
+        raise HTTPException(status_code=502,
+            detail="Could not connect to the UniFi Controller. Check that the host is reachable and the URL is correct.")
     except Exception as e:
         logger.exception("Failed to fetch UniFi network config")
-        raise HTTPException(status_code=502, detail=str(e)) from e
+        raise HTTPException(status_code=502,
+            detail="Failed to fetch network configuration from the UniFi Controller. Check the container logs for details.") from e
 
 
 @router.post("/api/settings/unifi/dismiss-upgrade")
@@ -243,9 +253,18 @@ def get_firewall_policies():
         return unifi_api.get_firewall_data()
     except UniFiPermissionError as e:
         raise HTTPException(status_code=e.status_code, detail=str(e)) from e
+    except SSLError:
+        logger.exception("Failed to fetch firewall policies")
+        raise HTTPException(status_code=502,
+            detail="SSL certificate verification failed. If using a self-signed certificate, enable 'Skip SSL verification' in UniFi settings.")
+    except RequestsConnectionError:
+        logger.exception("Failed to fetch firewall policies")
+        raise HTTPException(status_code=502,
+            detail="Could not connect to the UniFi Controller. Check that the host is reachable and the URL is correct.")
     except Exception as e:
         logger.exception("Failed to fetch firewall policies")
-        raise HTTPException(status_code=502, detail=str(e)) from e
+        raise HTTPException(status_code=502,
+            detail="Could not retrieve firewall policies from the UniFi Controller. Check the container logs for details.") from e
 
 
 @router.patch("/api/firewall/policies/{policy_id}")
@@ -277,13 +296,14 @@ def patch_firewall_policy(policy_id: str, body: dict):
         raise HTTPException(status_code=e.status_code, detail=str(e)) from e
     except Exception as e:
         status = 502
-        msg = str(e)
+        msg = "Failed to update this firewall rule. The UniFi Controller may be unreachable, be busy or the rule may have changed."
         if hasattr(e, 'response') and e.response is not None:
             if e.response.status_code == 422:
                 msg = "The controller rejected this change. The rule may have been modified or removed in the UniFi Controller."
                 status = 422
             else:
                 status = e.response.status_code
+        logger.exception("Failed to patch firewall policy %s", policy_id)
         raise HTTPException(status_code=status, detail=msg) from e
 
 
@@ -308,7 +328,8 @@ def bulk_update_logging(body: dict):
         raise HTTPException(status_code=e.status_code, detail=str(e)) from e
     except Exception as e:
         logger.exception("Bulk firewall update failed")
-        raise HTTPException(status_code=502, detail=str(e)) from e
+        raise HTTPException(status_code=502,
+            detail="Bulk update failed. One or more policies could not be processed. Check the container logs for details.") from e
 
 
 @router.post("/api/firewall/policies/bulk-logging-stream")
@@ -340,7 +361,7 @@ def bulk_update_logging_stream(body: dict):
                 q.put({'event': 'error', 'detail': str(e)})
             except Exception as e:
                 logger.exception("Bulk firewall stream failed")
-                q.put({'event': 'error', 'detail': str(e)})
+                q.put({'event': 'error', 'detail': "Bulk update failed. One or more policies could not be processed. Check the container logs for details."})
             finally:
                 q.put(None)  # sentinel
 
@@ -396,7 +417,7 @@ def match_log_to_policy_route(body: dict):
         )
     except Exception as e:
         logger.exception("Policy match failed")
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": "Could not match this log entry to a firewall policy. The rule may no longer exist."}
 
 
 

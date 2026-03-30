@@ -771,7 +771,7 @@ def _run_purge(log_type: str, total_rows: int, max_id: int):
     except Exception as e:
         now = _now_ts()
         with _purge_lock:
-            _purge_jobs[log_type].update(status='failed', error=str(e),
+            _purge_jobs[log_type].update(status='failed', error="Purge failed due to a database error. Check the container logs for details.",
                                          last_updated_at=now, finished_at=now)
         logger.exception("PURGE %s: failed after %s deleted rows", log_type_upper, f"{total_deleted:,}")
     finally:

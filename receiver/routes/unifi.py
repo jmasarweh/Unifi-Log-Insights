@@ -18,7 +18,7 @@ from deps import get_conn, put_conn, enricher_db, unifi_api, signal_receiver
 from firewall_policy_matcher import (
     match_log_to_policy, invalidate_cache as invalidate_fw_cache,
 )
-from unifi_api import UniFiPermissionError
+from unifi_api import UniFiAPI, UniFiPermissionError
 
 logger = logging.getLogger('api.unifi')
 
@@ -27,6 +27,21 @@ _ERR_CONNECTION = "Could not connect to the UniFi Controller. Check that the hos
 _ERR_BULK = "Bulk update failed. One or more policies could not be processed. Check the container logs for details."
 
 router = APIRouter()
+
+
+def _seed_network_identity():
+    """Best-effort identity seeding after successful UniFi connection test."""
+    try:
+        net_config = unifi_api.get_network_config()
+        wan_ip_by_iface, gateway_ip_vlans = (
+            UniFiAPI.extract_network_identity_from_net_config(net_config))
+        enricher_db.persist_network_identity(
+            wan_ip_by_iface=wan_ip_by_iface,
+            gateway_ip_vlans=gateway_ip_vlans,
+        )
+    except Exception:
+        logger.warning("UniFi test: identity seed incomplete — "
+                       "poll will refresh", exc_info=True)
 
 
 @router.get("/api/settings/unifi")
@@ -131,6 +146,7 @@ def test_unifi_connection(body: dict):
             set_config(enricher_db, 'unifi_controller_version', result.get('version', ''))
             set_config(enricher_db, 'unifi_enabled', True)
             unifi_api.reload_config()
+            _seed_network_identity()
             signal_receiver()
 
     else:
@@ -170,6 +186,7 @@ def test_unifi_connection(body: dict):
             set_config(enricher_db, 'unifi_controller_version', result.get('version', ''))
             set_config(enricher_db, 'unifi_enabled', True)
             unifi_api.reload_config()
+            _seed_network_identity()
             signal_receiver()
 
     return result

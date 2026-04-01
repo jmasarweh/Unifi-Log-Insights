@@ -12,6 +12,7 @@ from psycopg2.extras import RealDictCursor, Json
 
 from db import get_config, set_config, count_logs, encrypt_api_key, decrypt_api_key
 from deps import get_conn, put_conn, enricher_db, unifi_api, signal_receiver, APP_VERSION, ttl_cache
+from unifi_api import UniFiAPI
 from firewall_policy_matcher import invalidate_cache as invalidate_fw_cache
 from parsers import (
     VPN_PREFIX_BADGES, VPN_INTERFACE_PREFIXES, VPN_BADGE_CHOICES,
@@ -237,22 +238,22 @@ def complete_setup(body: dict):
     wizard_path = body.get("wizard_path", "log_detection")
     set_config(enricher_db, "wizard_path", wizard_path)
 
-    # Enable UniFi API if wizard used the API path
+    # Enable UniFi API if wizard used the API path, and seed identity
     if wizard_path == "unifi_api":
         set_config(enricher_db, "unifi_enabled", True)
         unifi_api.reload_config()
-
-    # Persist wan_ip_by_iface and derive wan_ips / wan_ip
-    if "wan_ip_by_iface" in body and body["wan_ip_by_iface"]:
-        # UniFi API path: UI provides the map
-        wan_ip_by_iface = body["wan_ip_by_iface"]
-        set_config(enricher_db, "wan_ip_by_iface", wan_ip_by_iface)
-        # Derive ordered wan_ips following wan_interfaces order
-        wan_ips = [wan_ip_by_iface[iface] for iface in body["wan_interfaces"]
-                   if iface in wan_ip_by_iface and wan_ip_by_iface[iface]]
-        if wan_ips:
-            set_config(enricher_db, "wan_ips", wan_ips)
-            set_config(enricher_db, "wan_ip", wan_ips[0])
+        # Seed WAN/gateway identity from UniFi API (best-effort)
+        try:
+            net_config = unifi_api.get_network_config()
+            wan_ip_by_iface, gateway_ip_vlans = (
+                UniFiAPI.extract_network_identity_from_net_config(net_config))
+            enricher_db.persist_network_identity(
+                wan_ip_by_iface=wan_ip_by_iface,
+                gateway_ip_vlans=gateway_ip_vlans,
+            )
+        except Exception:
+            logger.warning("Setup: UniFi identity seed incomplete — "
+                           "poll will refresh", exc_info=True)
     elif wizard_path == "log_detection":
         # Log-detection path: compute wan_ip_by_iface from logs
         iface_ips = enricher_db.get_wan_ips_by_interface(body["wan_interfaces"])

@@ -110,6 +110,12 @@ def setup_client(monkeypatch):
     mock_qh.validate_view_filters = MagicMock()
     monkeypatch.setitem(sys.modules, 'query_helpers', mock_qh)
 
+    # setup.py now imports UniFiAPI for the extractor
+    mock_uapi_module = MagicMock()
+    from unifi_api import UniFiAPI as _RealUniFiAPI
+    mock_uapi_module.UniFiAPI = _RealUniFiAPI
+    monkeypatch.setitem(sys.modules, 'unifi_api', mock_uapi_module)
+
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from routes.setup import router
@@ -197,3 +203,63 @@ class TestCacheInvalidation:
             })
             assert resp.status_code == 200
             mock_inv.assert_called_once()
+
+
+# ── Setup identity seeding ─────────────────────────────────────────────────
+
+class TestSetupIdentitySeeding:
+    def test_unifi_path_seeds_identity(self, setup_client):
+        """UniFi-path setup seeds WAN/gateway identity via shared helper."""
+        client, mock_deps, mock_db = setup_client
+        mock_deps.unifi_api.reload_config = MagicMock()
+        mock_deps.unifi_api.get_network_config.return_value = {
+            'wan_interfaces': [
+                {'physical_interface': 'eth0', 'wan_ip': '1.2.3.4'},
+            ],
+            'networks': [
+                {'ip_subnet': '10.0.0.1/24', 'vlan': 1, 'name': 'LAN'},
+            ],
+        }
+        mock_db.get_config.return_value = ['ppp0']
+
+        with patch('routes.setup.invalidate_fw_cache'):
+            resp = client.post('/api/setup/complete', json={
+                'wan_interfaces': ['eth0'],
+                'wizard_path': 'unifi_api',
+            })
+
+        assert resp.status_code == 200
+        mock_deps.enricher_db.persist_network_identity.assert_called_once()
+
+    def test_log_detection_branch_still_works(self, setup_client):
+        """Log-detection branch persists via inline set_config, not shared helper."""
+        client, mock_deps, mock_db = setup_client
+        mock_db.get_config.return_value = ['ppp0']
+        mock_deps.enricher_db.get_wan_ips_by_interface.return_value = {'ppp0': '9.9.9.9'}
+
+        with patch('routes.setup.invalidate_fw_cache'):
+            resp = client.post('/api/setup/complete', json={
+                'wan_interfaces': ['ppp0'],
+                'wizard_path': 'log_detection',
+            })
+
+        assert resp.status_code == 200
+        mock_deps.enricher_db.get_wan_ips_by_interface.assert_called_once()
+        # Shared helper NOT called — log path uses inline persistence
+        mock_deps.enricher_db.persist_network_identity.assert_not_called()
+
+    def test_partial_wan_does_not_hard_fail(self, setup_client):
+        """UniFi setup succeeds even when get_network_config raises."""
+        client, mock_deps, mock_db = setup_client
+        mock_deps.unifi_api.reload_config = MagicMock()
+        mock_deps.unifi_api.get_network_config.side_effect = Exception("API down")
+        mock_db.get_config.return_value = ['ppp0']
+
+        with patch('routes.setup.invalidate_fw_cache'):
+            resp = client.post('/api/setup/complete', json={
+                'wan_interfaces': ['eth0'],
+                'wizard_path': 'unifi_api',
+            })
+
+        assert resp.status_code == 200
+        assert resp.json()['success'] is True

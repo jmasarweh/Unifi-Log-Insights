@@ -713,6 +713,42 @@ END $$;""",
 
         self._backfill_tz_timestamps()
 
+    def ensure_post_boot_indexes(self):
+        """Create performance indexes that require CONCURRENTLY (existing installs).
+
+        Uses a dedicated connection with autocommit to run CREATE INDEX
+        CONCURRENTLY outside any transaction.  Fresh installs get the index
+        from init.sql; this handles upgrades.
+
+        Must be called from the receiver startup path only — not from
+        Database.connect() — to avoid the API and receiver both racing on
+        the same concurrent index creation.
+        """
+        idx_name = 'idx_logs_spgist_dst_ip_firewall'
+        try:
+            conn = psycopg2.connect(**self.conn_params)
+            conn.autocommit = True
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT 1 FROM pg_indexes WHERE indexname = %s",
+                        (idx_name,),
+                    )
+                    if cur.fetchone():
+                        return  # already exists
+                    logger.info("Creating %s concurrently (one-time)...", idx_name)
+                    cur.execute(f"""
+                        CREATE INDEX CONCURRENTLY IF NOT EXISTS {idx_name}
+                        ON logs USING spgist (dst_ip)
+                        WHERE log_type = 'firewall'
+                    """)
+                    logger.info("Index %s created successfully", idx_name)
+            finally:
+                conn.close()
+        except Exception:
+            logger.warning("Could not create %s — will retry next boot",
+                           idx_name, exc_info=True)
+
     def _fix_function_ownership(self):
         """One-time fix: transfer function ownership from postgres to unifi.
 
@@ -1521,12 +1557,12 @@ END $$;""",
                 placeholders = ','.join(['%s'] * len(interfaces))
                 cur.execute(f"""
                     SELECT interface_in AS iface,
-                           MODE() WITHIN GROUP (ORDER BY host(dst_ip)) FILTER (
-                               WHERE dst_ip IS NOT NULL AND {self._PRIVATE_IP_FILTER}
-                           ) AS wan_ip
+                           MODE() WITHIN GROUP (ORDER BY host(dst_ip)) AS wan_ip
                     FROM logs
                     WHERE log_type = 'firewall'
                       AND interface_in IN ({placeholders})
+                      AND dst_ip IS NOT NULL
+                      AND {self._PRIVATE_IP_FILTER}
                     GROUP BY interface_in
                 """, interfaces)
                 return {row[0]: row[1] for row in cur.fetchall() if row[1]}

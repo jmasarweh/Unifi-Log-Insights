@@ -329,6 +329,9 @@ def main():
     db = Database(conn_params)
     db.connect()
 
+    # Create performance indexes that require CONCURRENTLY (existing installs)
+    db.ensure_post_boot_indexes()
+
     # Load system configuration and apply to parsers module
     # Check for existing user migration
     setup_complete = get_config(db, "setup_complete", None)

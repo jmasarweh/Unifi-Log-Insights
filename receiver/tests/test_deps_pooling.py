@@ -34,10 +34,13 @@ _pool_mod.ThreadedConnectionPool = lambda *a, **kw: MagicMock()
 import deps as _deps_module
 _real_put_conn = _deps_module.put_conn
 
-# Restore — reinsert the imported deps module (with real put_conn) and
-# restore transitive stubs so later imports find stable module state.
+# Restore — remove the contaminated deps module (its singletons like
+# enricher_db and db_pool are MagicMocks from the stub phase) and
+# restore transitive modules.  This is safe because every test file
+# that imports deps already replaces it via monkeypatch before route
+# import — no test does a bare `from deps import ...` at module level.
 _pool_mod.ThreadedConnectionPool = _orig_pool
-sys.modules['deps'] = _deps_module
+sys.modules.pop('deps', None)
 for _mod, _orig in _stashed.items():
     if _orig is None:
         sys.modules.pop(_mod, None)

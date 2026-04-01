@@ -1048,35 +1048,13 @@ class UniFiAPI:
                                 wan_ip_names[wan_ip] = gateway_name
                         if wan_ip_names:
                             self._db.set_config('wan_ip_names', wan_ip_names)
-                    # Update wan_ip_by_iface from network config (keeps WAN IPs
-                    # current through PPPoE reconnections, DHCP renewals, failover)
-                    wan_interfaces = net_config.get('wan_interfaces', [])
-                    wan_ip_by_iface = {
-                        w['physical_interface']: w['wan_ip']
-                        for w in wan_interfaces if w.get('wan_ip')
-                    }
-                    if wan_ip_by_iface:
-                        self._db.set_config('wan_ip_by_iface', wan_ip_by_iface)
-                        # Derive ordered wan_ips from wan_interfaces config
-                        cfg_wan_ifaces = self._db.get_config('wan_interfaces') or []
-                        wan_ips = [wan_ip_by_iface[iface] for iface in cfg_wan_ifaces
-                                   if iface in wan_ip_by_iface]
-                        if wan_ips:
-                            self._db.set_config('wan_ips', wan_ips)
-                            self._db.set_config('wan_ip', wan_ips[0])
-                    # Extract gateway IP→VLAN mapping
-                    gateway_vlans = {}
-                    for net in net_config.get('networks', []):
-                        subnet = net.get('ip_subnet', '')
-                        if '/' in subnet:
-                            gw_ip = subnet.split('/')[0]
-                            gateway_vlans[gw_ip] = {
-                                'vlan': net.get('vlan'),
-                                'name': net.get('name', ''),
-                            }
-                    if gateway_vlans:
-                        self._db.set_config('gateway_ip_vlans', gateway_vlans)
-                        self._db.set_config('gateway_ips', list(gateway_vlans.keys()))
+                    # Persist WAN/gateway identity through shared helpers
+                    wan_ip_by_iface, gateway_ip_vlans = (
+                        self.extract_network_identity_from_net_config(net_config))
+                    self._db.persist_network_identity(
+                        wan_ip_by_iface=wan_ip_by_iface,
+                        gateway_ip_vlans=gateway_ip_vlans,
+                    )
                 except Exception as e:
                     logger.warning("Failed to extract network config: %s", e)
 

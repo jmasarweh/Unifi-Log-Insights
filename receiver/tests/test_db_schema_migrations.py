@@ -183,6 +183,68 @@ def test_ensure_schema_exits_when_last_seen_at_has_no_default(monkeypatch):
     assert "no DEFAULT" in logger.critical.call_args[0][0]
 
 
+def test_ensure_post_boot_indexes_skips_if_exists(monkeypatch):
+    """ensure_post_boot_indexes() does nothing when the index already exists."""
+    mock_conn = MagicMock()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = (1,)  # index exists
+    mock_cursor.__enter__ = lambda s: s
+    mock_cursor.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cursor
+
+    database = Database(conn_params={'user': 'unifi'})
+    monkeypatch.setattr('db.psycopg2.connect', lambda **kw: mock_conn)
+
+    database.ensure_post_boot_indexes()
+
+    # Should query pg_indexes but NOT run CREATE INDEX
+    assert any('pg_indexes' in str(c) for c in mock_cursor.execute.call_args_list)
+    executed_sql = ' '.join(str(c) for c in mock_cursor.execute.call_args_list)
+    assert 'CREATE INDEX' not in executed_sql
+
+
+def test_ensure_post_boot_indexes_creates_when_missing(monkeypatch):
+    """ensure_post_boot_indexes() creates the index when it doesn't exist."""
+    mock_conn = MagicMock()
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = None  # index missing
+    mock_cursor.__enter__ = lambda s: s
+    mock_cursor.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cursor
+
+    database = Database(conn_params={'user': 'unifi'})
+    monkeypatch.setattr('db.psycopg2.connect', lambda **kw: mock_conn)
+
+    database.ensure_post_boot_indexes()
+
+    executed_sql = ' '.join(str(c) for c in mock_cursor.execute.call_args_list)
+    assert 'CREATE INDEX CONCURRENTLY' in executed_sql
+    assert 'spgist' in executed_sql.lower()
+    assert mock_conn.autocommit is True
+
+
+def test_ensure_post_boot_indexes_warns_on_failure(monkeypatch):
+    """ensure_post_boot_indexes() logs a warning and continues on failure."""
+    database = Database(conn_params={'user': 'unifi'})
+    monkeypatch.setattr('db.psycopg2.connect',
+                        MagicMock(side_effect=Exception("connect failed")))
+    mock_logger = MagicMock()
+    monkeypatch.setattr(db_module, 'logger', mock_logger)
+
+    # Should not raise
+    database.ensure_post_boot_indexes()
+
+    mock_logger.warning.assert_called_once()
+    assert 'idx_logs_spgist_dst_ip_firewall' in mock_logger.warning.call_args[0][1]
+
+
+def test_ensure_schema_does_not_contain_concurrent_ddl():
+    """_ensure_schema() must not contain CONCURRENTLY — that belongs in
+    ensure_post_boot_indexes() only."""
+    source = inspect.getsource(Database._ensure_schema)
+    assert 'CONCURRENTLY' not in source
+
+
 def test_ensure_schema_exits_on_unrelated_unique_violation(monkeypatch):
     def on_execute(sql, _params, _idx):
         if "CREATE TABLE IF NOT EXISTS logs" in sql:

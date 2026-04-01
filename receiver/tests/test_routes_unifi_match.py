@@ -90,7 +90,8 @@ def setup_client(monkeypatch):
     _clear_route_modules(monkeypatch)
 
     mock_deps = _make_base_mock_deps()
-    mock_deps.ttl_cache = MagicMock()
+    # ttl_cache must work as a real passthrough decorator
+    mock_deps.ttl_cache = lambda **kw: (lambda fn: fn)
     monkeypatch.setitem(sys.modules, 'deps', mock_deps)
 
     mock_db_module = _make_base_db_mock()
@@ -263,3 +264,79 @@ class TestSetupIdentitySeeding:
 
         assert resp.status_code == 200
         assert resp.json()['success'] is True
+
+
+# ── /api/interfaces mode split ─────────────────────────────────────────────
+
+class TestInterfacesModeSplit:
+    def test_unifi_enabled_does_not_run_log_scan(self, setup_client):
+        """When unifi_enabled is true, /api/interfaces must not hit the DB."""
+        client, mock_deps, mock_db = setup_client
+        # Simulate unifi_enabled=True in persisted config
+        mock_db.get_config.side_effect = lambda db, key, default=None: {
+            'interface_labels': {},
+            'wan_interfaces': ['eth0'],
+            'vpn_networks': {},
+            'unifi_enabled': True,
+        }.get(key, default)
+        mock_deps.unifi_api.get_network_config.return_value = {
+            'wan_interfaces': [{'physical_interface': 'eth0'}],
+            'networks': [{'interface': 'br0'}],
+        }
+        mock_deps.unifi_api.get_vpn_networks.return_value = []
+
+        resp = client.get('/api/interfaces')
+
+        assert resp.status_code == 200
+        # The DB log scan (get_conn) must NOT have been called
+        mock_deps.get_conn.assert_not_called()
+
+    def test_unifi_disabled_runs_log_scan(self, setup_client):
+        """When unifi_enabled is false, /api/interfaces runs the log scan."""
+        client, mock_deps, mock_db = setup_client
+        mock_db.get_config.side_effect = lambda db, key, default=None: {
+            'interface_labels': {},
+            'wan_interfaces': ['ppp0'],
+            'vpn_networks': {},
+            'unifi_enabled': False,
+        }.get(key, default)
+
+        # Mock the DB connection for log scan
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [('ppp0',), ('br0',)]
+        mock_cursor.__enter__ = lambda s: s
+        mock_cursor.__exit__ = MagicMock(return_value=False)
+        mock_conn.cursor.return_value = mock_cursor
+        mock_deps.get_conn.return_value = mock_conn
+
+        resp = client.get('/api/interfaces')
+
+        assert resp.status_code == 200
+        mock_deps.get_conn.assert_called_once()
+
+    def test_degraded_credentials_still_uses_unifi_path(self, setup_client):
+        """When unifi_enabled=true but unifi_api.enabled=false (broken creds),
+        the route must NOT fall back to the log scan."""
+        client, mock_deps, mock_db = setup_client
+        mock_db.get_config.side_effect = lambda db, key, default=None: {
+            'interface_labels': {'eth0': 'WAN'},
+            'wan_interfaces': ['eth0'],
+            'vpn_networks': {},
+            'unifi_enabled': True,
+        }.get(key, default)
+        # Simulate broken credentials — unifi_api.enabled is false
+        mock_deps.unifi_api.enabled = False
+        mock_deps.unifi_api.get_network_config.return_value = {
+            'wan_interfaces': [], 'networks': [],
+        }
+        mock_deps.unifi_api.get_vpn_networks.return_value = []
+
+        resp = client.get('/api/interfaces')
+
+        assert resp.status_code == 200
+        # Must NOT fall back to log scan even with broken creds
+        mock_deps.get_conn.assert_not_called()
+        # Config-only interfaces should still appear
+        ifaces = [i['name'] for i in resp.json()['interfaces']]
+        assert 'eth0' in ifaces

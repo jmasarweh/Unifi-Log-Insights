@@ -4,11 +4,13 @@ Verifies that non-IDLE connections (e.g. after statement_timeout) are
 rolled back or discarded before being returned to the pool, preventing
 InFailedSqlTransaction poisoning of subsequent requests.
 
-Because deps.py runs heavy PostgreSQL initialization at import time, these
-tests exercise the put_conn logic directly against a mock pool without
-importing the deps module.
+Imports the real put_conn function source at module load time (via a
+one-shot module stub) and validates it against a mock pool.  The test
+also asserts structural parity with deps.py to catch future drift.
 """
 
+import inspect
+import sys
 from unittest.mock import MagicMock, PropertyMock
 
 from psycopg2 import extensions
@@ -16,28 +18,29 @@ from psycopg2 import extensions
 import pytest
 
 
-# ── Production logic under test ─────────────────────────────────────────────
-# Mirrors receiver/deps.py:put_conn() exactly.  If the production code
-# changes, this must be updated to match, and the test names make the
-# contract explicit enough to catch divergence.
+# ── Import the real put_conn without triggering deps module-level init ──────
+# Stash heavy deps, import deps, grab put_conn, then restore.
 
-def _put_conn(db_pool, conn):
-    """Exact replica of deps.put_conn() for isolated testing."""
-    if conn.closed:
-        db_pool.putconn(conn, close=True)
-        return
+_stashed = {}
+for _mod in ('db', 'enrichment', 'unifi_api'):
+    _stashed[_mod] = sys.modules.get(_mod)
+    sys.modules[_mod] = MagicMock()
 
-    close_conn = False
-    try:
-        status = conn.info.transaction_status
-        if status != extensions.TRANSACTION_STATUS_IDLE:
-            conn.rollback()
-            status = conn.info.transaction_status
-        close_conn = status != extensions.TRANSACTION_STATUS_IDLE
-    except Exception:
-        close_conn = True
+# Patch pool constructor so it doesn't connect
+import psycopg2.pool as _pool_mod
+_orig_pool = _pool_mod.ThreadedConnectionPool
+_pool_mod.ThreadedConnectionPool = lambda *a, **kw: MagicMock()
 
-    db_pool.putconn(conn, close=close_conn)
+import deps as _deps_module
+_real_put_conn = _deps_module.put_conn
+
+# Restore
+_pool_mod.ThreadedConnectionPool = _orig_pool
+for _mod, _orig in _stashed.items():
+    if _orig is None:
+        sys.modules.pop(_mod, None)
+    else:
+        sys.modules[_mod] = _orig
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -60,78 +63,95 @@ def _make_conn(*, closed=False, status=extensions.TRANSACTION_STATUS_IDLE,
     return conn
 
 
-@pytest.fixture()
-def mock_pool():
-    return MagicMock()
+@pytest.fixture(autouse=True)
+def _patch_pool(monkeypatch):
+    """Redirect put_conn's db_pool to a fresh mock for each test."""
+    mock_pool = MagicMock()
+    monkeypatch.setattr(_deps_module, 'db_pool', mock_pool)
+    return mock_pool
 
 
-# ── Tests ───────────────────────────────────────────────────────────────────
+# ── Structural parity check ────────────────────────────────────────────────
 
-def test_idle_connection_returned_to_pool(mock_pool):
+def test_production_put_conn_contains_transaction_status_check():
+    """Verify the production put_conn checks transaction_status.
+
+    Guards against future drift where deps.py is changed without
+    updating these tests.
+    """
+    source = inspect.getsource(_real_put_conn)
+    assert 'transaction_status' in source
+    assert 'TRANSACTION_STATUS_IDLE' in source
+    assert 'rollback' in source
+
+
+# ── Behavior tests ──────────────────────────────────────────────────────────
+
+def test_idle_connection_returned_to_pool(_patch_pool):
     """IDLE connection is returned to the pool without rollback."""
     conn = _make_conn(status=extensions.TRANSACTION_STATUS_IDLE)
 
-    _put_conn(mock_pool, conn)
+    _real_put_conn(conn)
 
     conn.rollback.assert_not_called()
-    mock_pool.putconn.assert_called_once_with(conn, close=False)
+    _patch_pool.putconn.assert_called_once_with(conn, close=False)
 
 
-def test_inerror_connection_rolled_back_before_reuse(mock_pool):
+def test_inerror_connection_rolled_back_before_reuse(_patch_pool):
     """INERROR connection is rolled back, then returned to pool."""
     conn = _make_conn(
         status=extensions.TRANSACTION_STATUS_INERROR,
         status_after_rollback=extensions.TRANSACTION_STATUS_IDLE,
     )
 
-    _put_conn(mock_pool, conn)
+    _real_put_conn(conn)
 
     conn.rollback.assert_called_once()
-    mock_pool.putconn.assert_called_once_with(conn, close=False)
+    _patch_pool.putconn.assert_called_once_with(conn, close=False)
 
 
-def test_intrans_connection_rolled_back_before_reuse(mock_pool):
+def test_intrans_connection_rolled_back_before_reuse(_patch_pool):
     """INTRANS connection is rolled back, then returned to pool."""
     conn = _make_conn(
         status=extensions.TRANSACTION_STATUS_INTRANS,
         status_after_rollback=extensions.TRANSACTION_STATUS_IDLE,
     )
 
-    _put_conn(mock_pool, conn)
+    _real_put_conn(conn)
 
     conn.rollback.assert_called_once()
-    mock_pool.putconn.assert_called_once_with(conn, close=False)
+    _patch_pool.putconn.assert_called_once_with(conn, close=False)
 
 
-def test_rollback_failure_discards_connection(mock_pool):
+def test_rollback_failure_discards_connection(_patch_pool):
     """If rollback raises, the connection is discarded."""
     conn = _make_conn(
         status=extensions.TRANSACTION_STATUS_INERROR,
         rollback_raises=True,
     )
 
-    _put_conn(mock_pool, conn)
+    _real_put_conn(conn)
 
-    mock_pool.putconn.assert_called_once_with(conn, close=True)
+    _patch_pool.putconn.assert_called_once_with(conn, close=True)
 
 
-def test_still_not_idle_after_rollback_discards_connection(mock_pool):
+def test_still_not_idle_after_rollback_discards_connection(_patch_pool):
     """If connection is still non-IDLE after rollback, it is discarded."""
     conn = _make_conn(
         status=extensions.TRANSACTION_STATUS_INERROR,
         status_after_rollback=extensions.TRANSACTION_STATUS_INERROR,
     )
 
-    _put_conn(mock_pool, conn)
+    _real_put_conn(conn)
 
     conn.rollback.assert_called_once()
-    mock_pool.putconn.assert_called_once_with(conn, close=True)
+    _patch_pool.putconn.assert_called_once_with(conn, close=True)
 
 
-def test_closed_connection_discarded(mock_pool):
+def test_closed_connection_discarded(_patch_pool):
     """Already-closed connection is passed with close=True."""
     conn = _make_conn(closed=True)
 
-    _put_conn(mock_pool, conn)
+    _real_put_conn(conn)
 
-    mock_pool.putconn.assert_called_once_with(conn, close=True)
+    _patch_pool.putconn.assert_called_once_with(conn, close=True)

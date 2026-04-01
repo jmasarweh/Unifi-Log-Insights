@@ -355,7 +355,9 @@ def list_interfaces():
 
     config_ifaces = _get_configured_interfaces(labels, wan_list, vpn_networks)
 
-    if unifi_api.enabled:
+    # Gate on persisted unifi_enabled, not unifi_api.enabled, so that
+    # degraded credentials don't silently fall back to the log scan.
+    if get_config(enricher_db, "unifi_enabled", False):
         discovered = _get_unifi_discovered_interfaces()
     else:
         discovered = _get_recent_log_interfaces()

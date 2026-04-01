@@ -57,6 +57,7 @@ def get_current_config():
         "config_version": get_config(enricher_db, "config_version", 1),
         "upgrade_v2_dismissed": get_config(enricher_db, "upgrade_v2_dismissed", False),
         "unifi_enabled": unifi_api.enabled,
+        "wizard_path": get_config(enricher_db, "wizard_path", None),
         "vpn_networks": get_config(enricher_db, "vpn_networks", {}),
         "wan_ip_by_iface": get_config(enricher_db, "wan_ip_by_iface", {}),
         # vpn_toast_dismissed was previously a boolean (True = dismiss all).

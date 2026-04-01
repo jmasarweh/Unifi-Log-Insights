@@ -317,14 +317,15 @@ export default function App() {
             !localStorage.getItem('migration_banner_dismissed')) {
           setShowMigrationBanner(true)
         }
-        // Upgrade modal: v1.x -> v2.0 transition
-        // TODO: Generalize for future major version transitions (e.g. v3.0).
-        // Currently hardcoded to config_version < 2. When a v3.0 migration is needed,
-        // consider a migration registry pattern: [{fromVersion, toVersion, modal}].
+        // Log-detection deprecation modal (Phase 1 transition)
+        // Shows once per session for log-detection users, permanently
+        // dismissible via checkbox.  Removal target: phase 2.
         if (cfg.setup_complete === true &&
-            (cfg.config_version || 0) < 2 &&
-            !cfg.upgrade_v2_dismissed) {
+            cfg.wizard_path === 'log_detection' &&
+            !cfg.upgrade_v2_dismissed &&
+            !sessionStorage.getItem('log_deprecation_shown')) {
           setShowUpgradeModal(true)
+          sessionStorage.setItem('log_deprecation_shown', '1')
         }
         setConfigLoaded(true)
       })
@@ -557,51 +558,52 @@ export default function App() {
 
   return (
     <div className={`h-dvh flex flex-col bg-gray-950${logsPaused && activeTab === 'logs' ? ' paused-glow' : ''}`}>
-      {/* Upgrade modal */}
+      {/* Log-detection deprecation modal — Phase 1 transition, removal target: phase 2 */}
       {showUpgradeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-gray-950 border border-gray-700 rounded-xl p-6 max-w-md mx-4 shadow-2xl">
-            <h2 className="text-lg font-semibold text-gray-200 mb-3">Welcome to v{health?.version || '2.0'}!</h2>
-            <p className="text-sm text-gray-400 mb-4">UniFi API integration is now available:</p>
-            <ul className="text-sm text-gray-300 space-y-1.5 mb-5">
-              <li className="flex items-start gap-2">
-                <span className="text-blue-400 mt-0.5">&#x2022;</span>
-                Auto-detect WAN and network configuration
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-blue-400 mt-0.5">&#x2022;</span>
-                Manage firewall rule syslog from your dashboard
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-blue-400 mt-0.5">&#x2022;</span>
-                Device name resolution
-              </li>
-            </ul>
-            <p className="text-sm text-gray-400 mb-5">
-              Connect your UniFi controller to get started.
+            <div className="flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded px-3 py-2 mb-4">
+              <svg className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+              <p className="text-sm text-yellow-400/90">Log-based setup is deprecated</p>
+            </div>
+            <p className="text-sm text-gray-300 mb-3">
+              Your installation was configured using log-based network detection, which will be
+              removed in the next major release.
             </p>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => { setShowUpgradeModal(false); setSettingsReconfig(true); setShowSettings(true) }}
-                className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-colors"
-              >
-                Set Up Now
-              </button>
-              <button
-                onClick={() => setShowUpgradeModal(false)}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
-              >
-                Later
-              </button>
-              <button
-                onClick={() => {
-                  setShowUpgradeModal(false)
-                  dismissUpgradeModal().catch(() => {})
-                }}
-                className="px-4 py-2 rounded-lg text-xs text-gray-500 hover:text-gray-400 transition-colors"
-              >
-                Don't Show Again
-              </button>
+            <p className="text-sm text-gray-400 mb-5">
+              To continue using Insights Plus, connect your UniFi controller
+              via <span className="text-gray-300">Settings &rarr; UniFi Connection</span>.
+            </p>
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="log-deprecation-dismiss"
+                  className="rounded border-gray-600 bg-gray-800 text-teal-600 focus:ring-teal-500/30"
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      dismissUpgradeModal().catch(() => {})
+                    }
+                  }}
+                />
+                <span className="text-sm text-gray-500">Don't warn me again</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setShowUpgradeModal(false); setSettingsReconfig(true); setShowSettings(true) }}
+                  className="px-4 py-2 rounded-lg text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white transition-colors"
+                >
+                  Configure UniFi
+                </button>
+                <button
+                  onClick={() => setShowUpgradeModal(false)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
+                >
+                  OK
+                </button>
+              </div>
             </div>
           </div>
         </div>

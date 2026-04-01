@@ -28,6 +28,13 @@ for _mod in _stubs:
 # Now safe to import the functions under test
 from main import _use_log_identity_detection, _refresh_network_identity_from_logs
 
+# Restore original module state so stubs don't leak to other test files
+for _mod, _orig in _originals.items():
+    sys.modules[_mod] = _orig
+for _mod in _stubs:
+    if _mod not in _originals:
+        sys.modules.pop(_mod, None)
+
 
 class TestUseLogIdentityDetection:
 

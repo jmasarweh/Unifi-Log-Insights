@@ -5,10 +5,11 @@ Covers:
 - Database.persist_network_identity()
 """
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
+from db import Database
 from unifi_api import UniFiAPI
 
 
@@ -109,7 +110,6 @@ class TestPersistNetworkIdentity:
         return db
 
     def test_persists_wan_identity(self, mock_db):
-        from db import Database
         Database.persist_network_identity(
             mock_db,
             wan_ip_by_iface={'eth0': '1.2.3.4', 'eth1': '5.6.7.8'},
@@ -130,7 +130,6 @@ class TestPersistNetworkIdentity:
         mock_db.set_config.assert_any_call('wan_ip', '2.2.2.2')
 
     def test_persists_gateway_identity(self, mock_db):
-        from db import Database
         Database.persist_network_identity(
             mock_db,
             gateway_ip_vlans={'10.0.0.1': {'vlan': 1, 'name': 'LAN'}},
@@ -140,7 +139,6 @@ class TestPersistNetworkIdentity:
 
     def test_empty_wan_ip_by_iface_does_not_clear(self, mock_db):
         """Empty wan_ip_by_iface must not overwrite last-known-good values."""
-        from db import Database
         Database.persist_network_identity(mock_db, wan_ip_by_iface={})
         # set_config should NOT be called for WAN keys
         for c in mock_db.set_config.call_args_list:
@@ -148,20 +146,17 @@ class TestPersistNetworkIdentity:
 
     def test_none_wan_ip_by_iface_does_not_clear(self, mock_db):
         """None wan_ip_by_iface must not overwrite last-known-good values."""
-        from db import Database
         Database.persist_network_identity(mock_db, wan_ip_by_iface=None)
         for c in mock_db.set_config.call_args_list:
             assert c[0][0] not in ('wan_ip_by_iface', 'wan_ips', 'wan_ip')
 
     def test_empty_gateway_ip_vlans_does_not_clear(self, mock_db):
         """Empty gateway_ip_vlans must not overwrite last-known-good values."""
-        from db import Database
         Database.persist_network_identity(mock_db, gateway_ip_vlans={})
         for c in mock_db.set_config.call_args_list:
             assert c[0][0] not in ('gateway_ip_vlans', 'gateway_ips')
 
     def test_both_wan_and_gateway(self, mock_db):
-        from db import Database
         Database.persist_network_identity(
             mock_db,
             wan_ip_by_iface={'eth0': '1.2.3.4'},

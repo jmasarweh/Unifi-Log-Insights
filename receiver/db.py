@@ -713,6 +713,8 @@ END $$;""",
 
         self._backfill_tz_timestamps()
 
+    _IDX_LOGS_DST_IP_SPGIST = 'idx_logs_spgist_dst_ip_firewall'
+
     def ensure_post_boot_indexes(self):
         """Create performance indexes that require CONCURRENTLY (existing installs).
 
@@ -724,7 +726,7 @@ END $$;""",
         Database.connect() — to avoid the API and receiver both racing on
         the same concurrent index creation.
         """
-        idx_name = 'idx_logs_spgist_dst_ip_firewall'
+        idx_name = self._IDX_LOGS_DST_IP_SPGIST
         try:
             conn = psycopg2.connect(**self.conn_params)
             conn.autocommit = True

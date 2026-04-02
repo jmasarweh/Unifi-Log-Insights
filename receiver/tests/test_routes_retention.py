@@ -55,7 +55,7 @@ def client(monkeypatch):
     mock_db_module = MagicMock()
     mock_db_module.Database = MagicMock()
     mock_db_module.Database.validate_retention_days = MagicMock()
-    mock_db_module.Database._RETENTION_BATCH_SIZE = 5000
+    mock_db_module.Database.RETENTION_BATCH_SIZE = 5000
     mock_db_module.get_config = MagicMock(return_value=None)
     mock_db_module.set_config = MagicMock()
     mock_db_module.count_logs = MagicMock(return_value=0)

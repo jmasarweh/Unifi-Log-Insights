@@ -206,6 +206,81 @@ class TestCacheInvalidation:
             mock_inv.assert_called_once()
 
 
+class TestImportCacheInvalidation:
+    """Cache invalidation triggered by /api/config/import for firewall-relevant keys."""
+
+    def test_import_wan_interfaces_invalidates_cache(self, setup_client):
+        client, mock_deps, mock_db = setup_client
+        with patch('routes.setup.invalidate_fw_cache') as mock_inv:
+            resp = client.post('/api/config/import', json={
+                'config': {'wan_interfaces': ['eth3']},
+            })
+            assert resp.status_code == 200
+            assert 'wan_interfaces' in resp.json()['imported_keys']
+            mock_inv.assert_called_once()
+
+    def test_import_interface_labels_invalidates_cache(self, setup_client):
+        client, mock_deps, mock_db = setup_client
+        with patch('routes.setup.invalidate_fw_cache') as mock_inv:
+            resp = client.post('/api/config/import', json={
+                'config': {'interface_labels': {'eth0': 'WAN'}},
+            })
+            assert resp.status_code == 200
+            assert 'interface_labels' in resp.json()['imported_keys']
+            mock_inv.assert_called_once()
+
+    def test_import_vpn_networks_invalidates_cache(self, setup_client):
+        client, mock_deps, mock_db = setup_client
+        with patch('routes.setup.invalidate_fw_cache') as mock_inv:
+            resp = client.post('/api/config/import', json={
+                'config': {'vpn_networks': {'wg0': {'badge': 'WireGuard'}}},
+            })
+            assert resp.status_code == 200
+            assert 'vpn_networks' in resp.json()['imported_keys']
+            mock_inv.assert_called_once()
+
+    def test_import_unifi_settings_invalidates_cache(self, setup_client):
+        client, mock_deps, mock_db = setup_client
+        with patch('routes.setup.invalidate_fw_cache') as mock_inv:
+            resp = client.post('/api/config/import', json={
+                'config': {'unifi_host': '192.168.1.1', 'unifi_enabled': True},
+            })
+            assert resp.status_code == 200
+            mock_inv.assert_called_once()
+
+    def test_import_unifi_api_key_invalidates_cache(self, setup_client):
+        client, mock_deps, mock_db = setup_client
+        mock_db.encrypt_api_key.return_value = 'encrypted_value'
+        with patch('routes.setup.invalidate_fw_cache') as mock_inv:
+            resp = client.post('/api/config/import', json={
+                'config': {'unifi_api_key': 'my-secret-key'},
+            })
+            assert resp.status_code == 200
+            assert 'unifi_api_key' in resp.json()['imported_keys']
+            mock_inv.assert_called_once()
+
+    def test_import_unrelated_config_does_not_invalidate_cache(self, setup_client):
+        client, mock_deps, mock_db = setup_client
+        with patch('routes.setup.invalidate_fw_cache') as mock_inv:
+            resp = client.post('/api/config/import', json={
+                'config': {'retention_days': 30, 'dns_retention_days': 7},
+            })
+            assert resp.status_code == 200
+            assert 'retention_days' in resp.json()['imported_keys']
+            mock_inv.assert_not_called()
+
+    def test_import_invalid_keys_do_not_trigger_invalidation(self, setup_client):
+        """Keys that fail validation should not trigger cache invalidation."""
+        client, mock_deps, mock_db = setup_client
+        with patch('routes.setup.invalidate_fw_cache') as mock_inv:
+            resp = client.post('/api/config/import', json={
+                'config': {'wan_interfaces': 'not-a-list'},  # invalid type
+            })
+            assert resp.status_code == 200
+            assert 'wan_interfaces' in resp.json()['failed_keys']
+            mock_inv.assert_not_called()
+
+
 # ── Setup identity seeding ─────────────────────────────────────────────────
 
 class TestSetupIdentitySeeding:

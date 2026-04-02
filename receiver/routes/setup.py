@@ -593,8 +593,14 @@ def import_config(body: dict):
     signal_receiver()
 
     # Reload UniFi API if any unifi settings changed
-    if any(k.startswith('unifi_') for k in imported_keys):
+    has_unifi_key = any(k.startswith('unifi_') for k in imported_keys)
+    if has_unifi_key:
         unifi_api.reload_config()
+
+    # Invalidate firewall cache if any imported key affects zone/policy behavior
+    _FW_RELEVANT_KEYS = {'wan_interfaces', 'interface_labels', 'vpn_networks'}
+    if _FW_RELEVANT_KEYS & set(imported_keys) or has_unifi_key:
+        invalidate_fw_cache()
 
     result = {"success": True, "imported_keys": imported_keys}
     if failed_keys:
@@ -804,7 +810,7 @@ def run_retention_cleanup_now():
             'status': 'running',
             'general_days': general,
             'dns_days': dns,
-            'batch_size': Database._RETENTION_BATCH_SIZE,
+            'batch_size': Database.RETENTION_BATCH_SIZE,
             'phase': 'dns',
             'dns_deleted': 0,
             'non_dns_deleted': 0,
@@ -818,7 +824,7 @@ def run_retention_cleanup_now():
     t = threading.Thread(target=_run_cleanup_worker, args=(general, dns), daemon=True)
     t.start()
     return {"success": True, "status": "running", "general_days": general, "dns_days": dns,
-            "batch_size": Database._RETENTION_BATCH_SIZE}
+            "batch_size": Database.RETENTION_BATCH_SIZE}
 
 
 @router.get("/api/config/retention/cleanup-status")

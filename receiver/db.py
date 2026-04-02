@@ -891,7 +891,7 @@ END $$;""",
 
     # ── Retention cleanup ────────────────────────────────────────────────────
 
-    _RETENTION_BATCH_SIZE = 5_000
+    RETENTION_BATCH_SIZE = 5_000
 
     @staticmethod
     def validate_retention_days(general_days: int, dns_days: int):
@@ -956,7 +956,7 @@ END $$;""",
 
         self.validate_retention_days(general_days, dns_days)
 
-        batch_size = self._RETENTION_BATCH_SIZE
+        batch_size = self.RETENTION_BATCH_SIZE
         now = datetime.now(timezone.utc)
         passes = [
             ("dns",     "log_type = 'dns'",  now - timedelta(days=dns_days)),

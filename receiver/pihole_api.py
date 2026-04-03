@@ -156,8 +156,25 @@ class PiHolePoller:
             else:
                 self._password = ''
 
-        self.poll_interval = int(os.environ.get('PIHOLE_POLL_INTERVAL', 0) or
-                                 self._db.get_config('pihole_poll_interval', 60))
+        env_interval = os.environ.get('PIHOLE_POLL_INTERVAL', '')
+        try:
+            parsed_interval = int(env_interval) if env_interval else 0
+        except ValueError:
+            logger.warning("Invalid PIHOLE_POLL_INTERVAL '%s', ignoring", env_interval)
+            parsed_interval = 0
+        if parsed_interval and not (15 <= parsed_interval <= 86400):
+            logger.warning("PIHOLE_POLL_INTERVAL %d out of range (15-86400), ignoring", parsed_interval)
+            parsed_interval = 0
+        if not parsed_interval:
+            try:
+                parsed_interval = int(self._db.get_config('pihole_poll_interval', 60))
+            except (ValueError, TypeError):
+                logger.warning("Invalid pihole_poll_interval in DB, using default 60s")
+                parsed_interval = 60
+            if not (15 <= parsed_interval <= 86400):
+                logger.warning("pihole_poll_interval %d out of range (15-86400), using default 60s", parsed_interval)
+                parsed_interval = 60
+        self.poll_interval = parsed_interval
 
         value = self._db.get_config('pihole_enrichment', 'both')
         self.enrichment_enabled = value if value in ('none', 'geoip', 'threat', 'both') else 'both'
@@ -780,6 +797,14 @@ class PiHolePoller:
             self._poll_stop.set()
             self._poll_thread.join(timeout=5)
             logger.info("Pi-hole polling stopped")
+        # Clear session so restart gets a fresh auth
+        if self._session:
+            try:
+                self._session.close()
+            except Exception:
+                logger.debug("Failed to close Pi-hole session on stop", exc_info=True)
+        self._session = None
+        self._sid = None
 
     # ── Test Connection ──────────────────────────────────────────────────────
 

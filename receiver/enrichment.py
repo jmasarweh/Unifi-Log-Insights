@@ -662,6 +662,15 @@ class Enricher:
             }
         return False
 
+    def _touch_threat_coalesced(self, ip: str):
+        """Touch threat last_seen_at, coalesced to avoid per-packet DB writes."""
+        if self._db and not self._is_recently_touched(ip):
+            try:
+                self._db.touch_threat_last_seen(ip)
+            except Exception:
+                logger.debug("touch_threat_last_seen failed for %s", ip, exc_info=True)
+            self._recently_touched[ip] = time.monotonic()
+
     def enrich(self, parsed: dict) -> dict:
         """Enrich a parsed log entry with GeoIP, ASN, threat, and rDNS data.
 
@@ -768,24 +777,13 @@ class Enricher:
             threat_data = self.abuseipdb.lookup(ip_to_enrich)
             if threat_data:
                 parsed.update(threat_data)
-                if self._db and not self._is_recently_touched(ip_to_enrich):
-                    try:
-                        self._db.touch_threat_last_seen(ip_to_enrich)
-                    except Exception:
-                        logger.debug("touch_threat_last_seen failed for %s", ip_to_enrich, exc_info=True)
-                    self._recently_touched[ip_to_enrich] = time.monotonic()
+                self._touch_threat_coalesced(ip_to_enrich)
         elif (parsed.get('log_type') == 'firewall'
                 and parsed.get('rule_action') == 'block'):
             threat_data = self.abuseipdb.lookup(ip_to_enrich)
             if threat_data:
                 parsed.update(threat_data)
-                # Touch last_seen_at — coalesced to avoid per-packet DB writes
-                if self._db and not self._is_recently_touched(ip_to_enrich):
-                    try:
-                        self._db.touch_threat_last_seen(ip_to_enrich)
-                    except Exception:
-                        logger.debug("touch_threat_last_seen failed for %s", ip_to_enrich, exc_info=True)
-                    self._recently_touched[ip_to_enrich] = time.monotonic()
+                self._touch_threat_coalesced(ip_to_enrich)
             elif self.abuseipdb.enabled and self._db:
                 # Enqueue for deferred lookup — coalesced, only when AbuseIPDB is configured
                 if not self._is_recently_touched(ip_to_enrich):

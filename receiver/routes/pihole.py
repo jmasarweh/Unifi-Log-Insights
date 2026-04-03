@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from db import get_config, set_config, encrypt_api_key
 from deps import enricher_db, signal_receiver, pihole_poller
@@ -21,7 +21,20 @@ def get_pihole_settings():
 @router.put("/api/settings/pihole")
 def update_pihole_settings(body: dict):
     """Save Pi-hole settings to system_config."""
-    # Check if host changed so we can reset cursor
+    # Validate all fields before persisting anything
+    interval = None
+    if 'poll_interval' in body:
+        try:
+            interval = int(body['poll_interval'])
+        except (ValueError, TypeError):
+            raise HTTPException(400, 'poll_interval must be an integer')
+        if interval < 15 or interval > 86400:
+            raise HTTPException(400, 'poll_interval must be between 15 and 86400 seconds')
+    if 'enrichment' in body:
+        if body['enrichment'] not in ('none', 'geoip', 'threat', 'both'):
+            raise HTTPException(400, 'enrichment must be one of: none, geoip, threat, both')
+
+    # All valid — persist
     current_host = get_config(enricher_db, 'pihole_host', '')
 
     if 'enabled' in body:
@@ -32,12 +45,10 @@ def update_pihole_settings(body: dict):
         set_config(enricher_db, 'pihole_host', body['host'])
     if 'password' in body:
         val = body['password']
-        # Only update password when a non-empty value is provided.
-        # Empty string means "no change" (UI sends '' when user hasn't typed anything).
         if val:
             set_config(enricher_db, 'pihole_password', encrypt_api_key(val))
-    if 'poll_interval' in body:
-        set_config(enricher_db, 'pihole_poll_interval', body['poll_interval'])
+    if interval is not None:
+        set_config(enricher_db, 'pihole_poll_interval', interval)
     if 'enrichment' in body:
         set_config(enricher_db, 'pihole_enrichment', body['enrichment'])
 

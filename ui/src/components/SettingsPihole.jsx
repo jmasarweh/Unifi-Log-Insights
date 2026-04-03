@@ -271,7 +271,7 @@ export default function SettingsPihole() {
               </label>
               <select
                 value={draft.poll_interval ?? 60}
-                onChange={e => setDraft(prev => ({ ...prev, poll_interval: parseInt(e.target.value) }))}
+                onChange={e => setDraft(prev => ({ ...prev, poll_interval: parseInt(e.target.value, 10) }))}
                 className={INPUT_CLS}
               >
                 {POLL_INTERVALS.map(opt => (

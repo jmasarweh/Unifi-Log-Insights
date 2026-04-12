@@ -163,7 +163,7 @@ def get_adguard_stats():
                        COUNT(*) AS hits
                 FROM adguard_logs
                 WHERE timestamp >= NOW() - INTERVAL '24 hours'
-                GROUP BY client
+                GROUP BY 1
                 ORDER BY hits DESC
                 LIMIT 10
             """)

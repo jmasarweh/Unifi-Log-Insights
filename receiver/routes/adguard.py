@@ -138,10 +138,10 @@ def get_adguard_stats():
 
             cur.execute("""
                 SELECT
-                    COUNT(*)                                                           AS total,
-                    COUNT(*) FILTER (WHERE reason NOT LIKE 'NotFiltered%%')            AS blocked,
-                    COUNT(*) FILTER (WHERE cached = TRUE)                              AS cached,
-                    ROUND(AVG(elapsed_ms) FILTER (WHERE elapsed_ms IS NOT NULL), 2)    AS avg_elapsed_ms
+                    COUNT(*)                                                                       AS total,
+                    COUNT(*) FILTER (WHERE reason NOT LIKE 'NotFiltered%%')                        AS blocked,
+                    COUNT(*) FILTER (WHERE cached = TRUE)                                          AS cached,
+                    ROUND(AVG(elapsed_ms) FILTER (WHERE elapsed_ms IS NOT NULL)::numeric, 2)       AS avg_elapsed_ms
                 FROM adguard_logs
                 WHERE timestamp >= NOW() - INTERVAL '24 hours'
             """)

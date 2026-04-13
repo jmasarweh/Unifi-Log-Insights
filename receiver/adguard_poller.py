@@ -194,9 +194,9 @@ class AdGuardHomePoller:
         batch = [_parse_entry(e, self._clients) for e in all_entries]
 
         # Advance cursor to the newest timestamp seen.
-        valid_times = [_parse_ts(e.get('time') or '') for e in all_entries]
-        new_cursor_dt = max(t for t in valid_times if t is not None)
-        new_cursor = new_cursor_dt.isoformat()
+        # Guard against all entries having unparseable timestamps.
+        valid_times = [t for t in (_parse_ts(e.get('time') or '') for e in all_entries) if t is not None]
+        new_cursor = max(valid_times).isoformat() if valid_times else cursor_str
 
         # Insert rows and advance the cursor atomically.
         inserted = self._db.insert_adguard_batch(batch, new_cursor=new_cursor)

@@ -11,8 +11,10 @@ Configured clients take priority over auto-detected clients.
 
 import base64
 import logging
+import re
 import threading
 import time
+from datetime import datetime
 
 import requests
 
@@ -99,27 +101,42 @@ class AdGuardHomePoller:
     def _poll(self):
         """Fetch all query log entries newer than the stored cursor and insert them.
 
-        Pagination strategy: fetch pages from newest to oldest using the
-        ``older_than`` cursor returned by each page.  Stop when a page is empty,
-        when the page's oldest timestamp is at or before the stored cursor, or
-        when we exceed a safety page limit.  Accumulated entries are then
-        filtered to those strictly newer than the cursor before insert.
+        Pagination strategy: fetch pages newest-to-oldest using ``older_than``.
+        Stop when a page is empty, the page's oldest entry is at/before the
+        cursor, or there are no more pages.  A 100-page safety cap aborts the
+        poll *without* advancing the cursor so no data is silently skipped.
+
+        Config is snapshot into locals at the start so a concurrent
+        ``reload_config()`` (SIGUSR2) cannot mix data from two different hosts.
+        Timestamps are parsed to ``datetime`` objects for reliable comparison
+        across RFC3339Nano format variations.
         """
-        cursor = get_config(self._db, 'adguard_cursor', None)
+        # ── Snapshot config to avoid race with reload_config() ────────────────
+        poll_host    = self._host
+        poll_headers = self._auth_header()
+        cursor_str   = get_config(self._db, 'adguard_cursor', None)
+        cursor_dt    = _parse_ts(cursor_str)
 
         all_entries: list[dict] = []
-        older_than: str | None = None   # used to walk backward through pages
-        max_pages = 20                  # safety limit (~10 000 entries)
+        older_than:  str | None = None
+        pages        = 0
+        _MAX_PAGES   = 100   # safety cap — aborts without advancing cursor
 
-        for _ in range(max_pages):
+        while True:
+            # Abort if host changed mid-poll (SIGUSR2 fired during pagination)
+            if self._host != poll_host:
+                logger.warning("AdGuard: host changed mid-poll — discarding batch")
+                return
+
+            pages += 1
             params: dict = {'limit': _POLL_BATCH, 'response_status': 'all'}
             if older_than:
                 params['older_than'] = older_than
 
             try:
                 r = requests.get(
-                    f"{self._host}/control/querylog",
-                    headers=self._auth_header(),
+                    f"{poll_host}/control/querylog",
+                    headers=poll_headers,
                     params=params,
                     timeout=15,
                 )
@@ -133,21 +150,30 @@ class AdGuardHomePoller:
                 return
 
             data = r.json()
-            page = data.get('data') or []
-            oldest_on_page = data.get('oldest') or ''   # timestamp of last entry on page
+            page             = data.get('data') or []
+            oldest_on_page   = data.get('oldest') or ''
+            oldest_on_page_dt = _parse_ts(oldest_on_page)
 
             if not page:
                 break
 
             all_entries.extend(page)
 
-            # Stop if we've gone back past the cursor — no older new entries exist.
-            if cursor and oldest_on_page and oldest_on_page <= cursor:
+            # Stop when we've walked back to/past the cursor.
+            if cursor_dt and oldest_on_page_dt and oldest_on_page_dt <= cursor_dt:
                 break
 
-            # No more pages available.
+            # No further pages available.
             if not oldest_on_page or len(page) < _POLL_BATCH:
                 break
+
+            # Safety cap: abort without touching cursor to prevent data loss.
+            if pages >= _MAX_PAGES:
+                logger.warning(
+                    "AdGuard: poll reached %d-page safety cap without crossing cursor"
+                    " — aborting this cycle; cursor unchanged", _MAX_PAGES,
+                )
+                return
 
             older_than = oldest_on_page
 
@@ -155,8 +181,11 @@ class AdGuardHomePoller:
             return
 
         # Keep only entries strictly newer than the stored cursor.
-        if cursor:
-            all_entries = [e for e in all_entries if (e.get('time') or '') > cursor]
+        if cursor_dt:
+            all_entries = [
+                e for e in all_entries
+                if (_parse_ts(e.get('time') or '') or datetime.min.replace(tzinfo=cursor_dt.tzinfo)) > cursor_dt
+            ]
 
         if not all_entries:
             return
@@ -164,8 +193,10 @@ class AdGuardHomePoller:
         self._refresh_clients()
         batch = [_parse_entry(e, self._clients) for e in all_entries]
 
-        # Advance cursor to the newest timestamp seen (entries are newest-first).
-        new_cursor = max(e.get('time') or '' for e in all_entries)
+        # Advance cursor to the newest timestamp seen.
+        valid_times = [_parse_ts(e.get('time') or '') for e in all_entries]
+        new_cursor_dt = max(t for t in valid_times if t is not None)
+        new_cursor = new_cursor_dt.isoformat()
 
         # Insert rows and advance the cursor atomically.
         inserted = self._db.insert_adguard_batch(batch, new_cursor=new_cursor)
@@ -200,6 +231,23 @@ class AdGuardHomePoller:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _parse_ts(ts: str) -> datetime | None:
+    """Parse an RFC3339/RFC3339Nano timestamp string to a timezone-aware datetime.
+
+    AdGuard Home emits nanosecond-precision timestamps (e.g.
+    ``2026-04-13T18:10:52.123456789+02:00``) which Python's
+    ``fromisoformat`` cannot handle past microseconds.  Sub-microsecond
+    digits are truncated before parsing.
+    """
+    if not ts:
+        return None
+    # Truncate sub-microsecond precision to 6 fractional digits.
+    ts_norm = re.sub(r'(\.\d{6})\d+', r'\1', ts)
+    try:
+        return datetime.fromisoformat(ts_norm)
+    except ValueError:
+        return None
 
 def _parse_entry(e: dict, clients: dict[str, str]) -> dict:
     """Map a raw AGH QueryLogItem dict to a flat dict for DB insert."""

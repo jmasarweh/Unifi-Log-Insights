@@ -41,7 +41,7 @@ class AdGuardHomePoller:
     def reload_config(self):
         """Re-read AdGuard config from system_config. Safe to call from SIGUSR2 handler."""
         new_host = (get_config(self._db, 'adguard_host', '') or '').rstrip('/')
-        if new_host != self._host:
+        if new_host != getattr(self, '_host', ''):
             # Host changed — invalidate client cache so _refresh_clients fetches
             # fresh names from the new instance rather than serving stale data.
             self._clients = {}
@@ -91,7 +91,7 @@ class AdGuardHomePoller:
             self._clients = cache
             self._clients_refreshed = time.time()
             logger.debug("AdGuard client cache refreshed: %d entries", len(cache))
-        except Exception as e:
+        except (requests.RequestException, KeyError, ValueError) as e:
             logger.warning("AdGuard: client cache refresh failed: %s", e)
 
     # ── Poll ──────────────────────────────────────────────────────────────────

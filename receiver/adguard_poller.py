@@ -187,16 +187,32 @@ class AdGuardHomePoller:
 
         Timestamp handling
         ------------------
-        All cursor and entry timestamp comparisons use timezone-aware
-        ``datetime`` objects (via ``_parse_ts``) rather than raw strings to
-        avoid subtle ordering bugs with RFC3339Nano format variations (e.g.
-        differing fractional-second precision or ``+HH:MM`` vs ``Z`` suffixes).
+        Entry comparisons use timezone-aware ``datetime`` objects (via
+        ``_parse_ts``) to handle RFC3339Nano format variations (e.g. ``Z`` vs
+        ``+HH:MM`` suffix, differing fractional-second precision).  The cursor
+        is stored as the *original* RFC3339Nano string (not
+        ``datetime.isoformat()``) to preserve nanosecond precision — two entries
+        sharing the same microsecond but differing in later digits would
+        otherwise be incorrectly treated as equal.
         """
         # ── Snapshot config — isolates this poll from concurrent reload_config() calls
         poll_host    = self._host
         poll_headers = self._auth_header()
         cursor_str   = get_config(self._db, 'adguard_cursor', None)
         cursor_dt    = _parse_ts(cursor_str)
+
+        # ── DB host guard (pre-poll) ───────────────────────────────────────────
+        # The DB is the authoritative source of config.  If the stored host
+        # already differs from the snapshotted poll_host (e.g. a config change
+        # landed between _host assignment above and the DB read), skip this
+        # cycle entirely so we never mix entries from two different instances.
+        db_host = (get_config(self._db, 'adguard_host', '') or '').strip().rstrip('/')
+        if db_host != poll_host:
+            logger.info(
+                "AdGuard: DB host (%s) differs from snapshot (%s) — skipping cycle",
+                db_host, poll_host,
+            )
+            return
 
         all_entries: list[dict] = []
         older_than: str | None  = None   # walks backward through pages
@@ -293,13 +309,34 @@ class AdGuardHomePoller:
         batch = [_parse_entry(e, self._clients) for e in all_entries]
 
         # ── Advance the cursor to the newest timestamp in this batch ──────────
-        # If all entries have unparseable timestamps (shouldn't happen in
-        # practice), fall back to the previous cursor to avoid regressing.
-        valid_times = [
-            t for t in (_parse_ts(e.get('time') or '') for e in all_entries)
+        # We store the *original* RFC3339Nano string (not datetime.isoformat())
+        # so nanosecond precision is preserved.  Two entries that differ only in
+        # sub-microsecond digits would otherwise appear equal after truncation,
+        # causing the next poll to skip entries that share the same microsecond
+        # as the cursor but have a later nanosecond value.
+        #
+        # valid_pairs: list of (parsed_datetime, raw_time_string) for entries
+        # where _parse_ts succeeds; the max is taken on the datetime component
+        # so that timezone-aware comparison works correctly.
+        valid_pairs = [
+            (t, e.get('time', ''))
+            for e in all_entries
+            for t in (_parse_ts(e.get('time') or ''),)
             if t is not None
         ]
-        new_cursor = max(valid_times).isoformat() if valid_times else cursor_str
+        new_cursor = max(valid_pairs, key=lambda p: p[0])[1] if valid_pairs else cursor_str
+
+        # ── DB host guard (post-pagination) ───────────────────────────────────
+        # A config change that arrives after the pagination loop but before the
+        # DB write would persist a cursor belonging to the old host into the new
+        # host's config row — the next cycle would then skip entries that pre-
+        # date the cursor but were never actually fetched.  Re-check the DB host
+        # here and discard the batch if it has changed.
+        if (get_config(self._db, 'adguard_host', '') or '').strip().rstrip('/') != poll_host:
+            logger.warning(
+                "AdGuard: host changed after pagination — discarding batch to avoid cursor corruption",
+            )
+            return
 
         # ── Insert rows and advance cursor atomically ─────────────────────────
         # A crash between insert and cursor update would cause the next poll to

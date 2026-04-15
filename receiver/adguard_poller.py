@@ -328,10 +328,9 @@ class AdGuardHomePoller:
         # where _parse_ts succeeds; the max is taken on the datetime component
         # so that timezone-aware comparison works correctly.
         valid_pairs = [
-            (t, e.get('time', ''))
+            (t, raw)
             for e in all_entries
-            for t in (_parse_ts(e.get('time') or ''),)
-            if t is not None
+            if (raw := e.get('time') or '') and (t := _parse_ts(raw)) is not None
         ]
         new_cursor = max(valid_pairs, key=lambda p: p[0])[1] if valid_pairs else cursor_str
 
@@ -348,10 +347,9 @@ class AdGuardHomePoller:
             return
 
         # ── Insert rows and advance cursor atomically ─────────────────────────
-        # A crash between insert and cursor update would cause the next poll to
-        # re-fetch (and attempt to re-insert) the same entries — acceptable
-        # because the DB has no unique constraint on (timestamp, client_ip,
-        # domain), so duplicates can occur only in this failure scenario.
+        # insert_adguard_batch wraps both the row inserts and the cursor update
+        # in a single get_conn() transaction, so partial application can only
+        # occur if the transaction commit itself fails — an extremely rare event.
         inserted = self._db.insert_adguard_batch(batch, new_cursor=new_cursor)
 
         logger.debug(

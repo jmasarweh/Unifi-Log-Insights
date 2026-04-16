@@ -162,8 +162,9 @@ class AdGuardHomePoller:
                             networks.append((ipaddress.ip_network(cid, strict=False), name))
                         except ValueError:
                             pass
-                    elif ':' in cid and len(cid) in (17, 14):
-                        # MAC address (xx:xx:xx:xx:xx:xx or xx-xx-xx-xx-xx-xx)
+                    elif (':' in cid or '-' in cid) and len(cid) in (17, 14):
+                        # MAC address: colon (aa:bb:cc:dd:ee:ff) or
+                        # hyphen-delimited (aa-bb-cc-dd-ee-ff) — both length 17.
                         macs[_norm_mac(cid)] = name
                     else:
                         # Plain IP
@@ -309,15 +310,18 @@ class AdGuardHomePoller:
             if not oldest_on_page or len(page) < _POLL_BATCH:
                 break
 
-            # Safety cap — abort *without* advancing the cursor.
-            # The next poll cycle will retry from the same position.
+            # Safety cap — commit what we have so far and stop paging.
+            # Using `break` (not `return`) allows the already-accumulated entries
+            # to be inserted and the cursor to advance, making forward progress
+            # even when the backlog permanently exceeds MAX_POLL_PAGES * POLL_BATCH.
             if pages >= _MAX_POLL_PAGES:
                 logger.warning(
-                    "AdGuard: reached %d-page safety cap without crossing cursor "
-                    "— aborting cycle; cursor unchanged (will retry next poll)",
-                    _MAX_POLL_PAGES,
+                    "AdGuard: reached %d-page safety cap — committing partial batch "
+                    "(%d entries so far) and advancing cursor; remaining entries will "
+                    "be fetched on the next poll cycle",
+                    _MAX_POLL_PAGES, len(all_entries),
                 )
-                return
+                break
 
             older_than = oldest_on_page  # next page request
 

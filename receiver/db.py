@@ -814,6 +814,29 @@ END $$;""",
                         )
                         sys.exit(1)
 
+                    # Validate AdGuard Home query log table and its primary index.
+                    vcur.execute("""SELECT 1 FROM information_schema.tables
+                                   WHERE table_schema = 'public'
+                                     AND table_name = 'adguard_logs'""")
+                    if not vcur.fetchone():
+                        logger.critical(
+                            "FATAL: 'adguard_logs' table missing after schema migration. "
+                            "The database user '%s' likely lacks CREATE TABLE privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
+                    vcur.execute("""SELECT 1 FROM pg_indexes
+                                   WHERE schemaname = 'public'
+                                     AND indexname = 'idx_adguard_timestamp'""")
+                    if not vcur.fetchone():
+                        logger.critical(
+                            "FATAL: Critical index 'idx_adguard_timestamp' missing after schema "
+                            "migration. The database user '%s' likely lacks CREATE INDEX privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
             logger.info("Schema migrations applied and validated.")
         except SystemExit:
             raise

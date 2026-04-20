@@ -260,6 +260,7 @@ class Database:
     ]
 
     def __init__(self, conn_params: dict | None = None, min_conn: int = 2, max_conn: int = 10):
+        """Configure connection parameters and pool size limits."""
         self.conn_params = conn_params or build_conn_params()
         self.pool = None
         self.min_conn = min_conn

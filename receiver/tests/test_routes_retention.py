@@ -301,16 +301,16 @@ class TestRetentionConfigPost:
         mock_deps.signal_receiver.assert_not_called()
 
     def test_post_with_unchanged_time_does_not_signal(self, client):
-        """Saving the same retention_time as already stored must not trigger
-        SIGUSR2. The UI sends retention_time on every save (part of the
-        combined dirty check), so a days-only edit always arrives with a
+        """Saving the same retention_time as currently effective must not
+        trigger SIGUSR2. The UI sends retention_time on every save (part of
+        the combined dirty check), so a days-only edit always arrives with a
         retention_time field."""
+        from types import SimpleNamespace
         test_client, mock_deps, mock_db, _ = client
 
-        # get_config('retention_time') returns '05:17' (current stored value)
-        def get_config(db, key, *a, **kw):
-            return '05:17' if key == 'retention_time' else None
-        mock_db.get_config.side_effect = get_config
+        # Effective value is '05:17' (regardless of source — UI, env, or default)
+        mock_db.Database.resolve_retention_time.return_value = SimpleNamespace(
+            time='05:17', source='ui')
 
         resp = test_client.post('/api/config/retention', json={'retention_time': '05:17'})
         assert resp.status_code == 200
@@ -318,6 +318,37 @@ class TestRetentionConfigPost:
         saved = [c for c in mock_db.set_config.call_args_list
                  if c.args[1] == 'retention_time']
         assert saved == [], 'unchanged time must not be re-written'
+
+    def test_post_with_env_sourced_time_does_not_flip_source_to_ui(self, client):
+        """REGRESSION: When the effective time comes from RETENTION_TIME env
+        (or the default), a days-only edit that echoes back the same effective
+        time in the payload must NOT write it to system_config.
+
+        Writing would silently flip time_source from 'env'/'default' to 'ui',
+        permanently pinning the current time against future env overrides.
+        Found by review after the hour→time refactor — the initial no-op check
+        compared against get_config('retention_time') which is None when the
+        time is env/default-sourced, so every days-only save would trip it.
+        """
+        from types import SimpleNamespace
+        test_client, mock_deps, mock_db, _ = client
+
+        # Effective time is '23:17' from env (system_config row absent).
+        mock_db.Database.resolve_retention_time.return_value = SimpleNamespace(
+            time='23:17', source='env')
+        # get_config('retention_time') returns None — nothing in DB.
+        # (Fixture default already has get_config returning None for all keys.)
+
+        resp = test_client.post('/api/config/retention', json={
+            'retention_days': 30,           # days-only edit
+            'retention_time': '23:17',      # UI echoes the effective env value
+        })
+        assert resp.status_code == 200
+        mock_deps.signal_receiver.assert_not_called()
+
+        saved = [c for c in mock_db.set_config.call_args_list
+                 if c.args[1] == 'retention_time']
+        assert saved == [], 'env-sourced time must not be promoted to system_config on a days-only save'
 
 
 class TestRetentionTimeImport:

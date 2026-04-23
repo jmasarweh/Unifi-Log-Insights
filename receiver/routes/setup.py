@@ -703,12 +703,19 @@ def update_retention(body: dict):
                 status_code=400,
                 detail="retention_time must be a 'HH:MM' string in 00:00..23:59"
             )
-        # Only signal if the value actually differs from what's stored. The UI
-        # sends retention_time on every save (it's part of the combined dirty
-        # check), so without this comparison a days-only edit would still fire
-        # SIGUSR2 and force a scheduler rebuild.
-        existing = get_config(enricher_db, 'retention_time')
-        if existing != parsed_time:
+        # Compare against the *effective* value (UI > env > default), not the
+        # raw DB key. The UI sends retention_time on every save (part of the
+        # combined dirty check), so a days-only edit always arrives with the
+        # current effective time in the payload.
+        #
+        # Comparing against get_config('retention_time') alone would treat
+        # env/default-sourced times as "not present in DB, needs writing",
+        # which silently flips the precedence source from env/default to ui
+        # and pins the current time against future env overrides. The
+        # resolver-based comparison only writes on a genuine user-initiated
+        # change.
+        effective = Database.resolve_retention_time(enricher_db).time
+        if effective != parsed_time:
             set_config(enricher_db, 'retention_time', parsed_time)
             time_changed = True
 

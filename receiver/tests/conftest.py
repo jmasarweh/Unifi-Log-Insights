@@ -19,5 +19,6 @@ def _clean_env(monkeypatch):
     """Ensure DB/encryption env vars don't leak between tests."""
     for var in ('SECRET_KEY', 'POSTGRES_PASSWORD', 'DB_HOST', 'DB_PORT',
                 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_SSLMODE',
-                'DB_SSLROOTCERT', 'DB_SSLCERT', 'DB_SSLKEY', 'TZ'):
+                'DB_SSLROOTCERT', 'DB_SSLCERT', 'DB_SSLKEY', 'TZ',
+                'RETENTION_HOUR', 'RETENTION_DAYS', 'DNS_RETENTION_DAYS'):
         monkeypatch.delenv(var, raising=False)

@@ -12,6 +12,7 @@ import json
 import logging
 import time
 from contextlib import contextmanager
+from typing import NamedTuple
 
 import psycopg2
 import psycopg2.errors
@@ -151,6 +152,29 @@ INSERT_SQL = f"""
     INSERT INTO logs ({', '.join(INSERT_COLUMNS)})
     VALUES ({', '.join(['%s'] * len(INSERT_COLUMNS))})
 """
+
+
+# ── Retention configuration — parsers and result types ───────────────────────
+
+def parse_retention_hour(raw) -> int | None:
+    """Parse and range-validate a retention_hour input value.
+
+    Returns int in 0..23 or None for any non-coercible / out-of-range input.
+    Shared by Database.resolve_retention_hour (for UI/env values) and the
+    route handlers in routes/setup.py (for POST bodies and import payloads).
+    Callers decide how to surface None — resolver falls through to the next
+    precedence level, POST raises HTTPException, import pushes to failed_keys.
+    """
+    try:
+        hour = int(raw)
+    except (ValueError, TypeError):
+        return None
+    return hour if 0 <= hour <= 23 else None
+
+
+class RetentionHourConfig(NamedTuple):
+    hour: int
+    source: str  # 'ui' | 'env' | 'default'
 
 
 class Database:
@@ -1001,6 +1025,28 @@ END $$;""",
             logger.warning("Invalid DNS_RETENTION_DAYS, falling back to 10")
             dns = 10
         return general, dns
+
+    @staticmethod
+    def resolve_retention_hour(db) -> RetentionHourConfig:
+        """Resolve retention cleanup hour from config > env > default.
+
+        An invalid `system_config` value does NOT short-circuit to default —
+        env is still consulted. Uses the shared `parse_retention_hour` helper
+        so the int-and-range logic lives in exactly one place.
+
+        Made a staticmethod (not instance method) because signal-handler code
+        in main.py calls it with an arbitrary Database reference and a pure
+        function is easier to test.
+        """
+        ui = parse_retention_hour(db.get_config('retention_hour'))
+        if ui is not None:
+            return RetentionHourConfig(ui, 'ui')
+
+        env = parse_retention_hour(os.environ.get('RETENTION_HOUR'))
+        if env is not None:
+            return RetentionHourConfig(env, 'env')
+
+        return RetentionHourConfig(3, 'default')
 
     def run_retention_cleanup(self, general_days: int = 60, dns_days: int = 10,
                               progress_cb=None) -> dict:

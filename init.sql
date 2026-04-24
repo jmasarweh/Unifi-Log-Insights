@@ -126,7 +126,14 @@ ALTER TABLE logs SET (
 -- Lets operators verify the scale_factor tuning is firing as expected after
 -- large cleanups.  Set log_autovacuum_min_duration = 60000 to restrict logging
 -- to operations taking > 60 s if the default produces too much volume.
-ALTER DATABASE "unifi_logs" SET log_autovacuum_min_duration = '0';
+DO $$
+BEGIN
+    -- Use current_database() so this script is portable across any DB name.
+    EXECUTE format(
+        'ALTER DATABASE %I SET log_autovacuum_min_duration = ''0''',
+        current_database()
+    );
+END $$;
 
 -- AbuseIPDB threat score cache (persistent across restarts)
 CREATE TABLE IF NOT EXISTS ip_threats (

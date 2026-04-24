@@ -615,7 +615,7 @@ export default function SettingsDataBackups({ totalLogs, storage, onSaved }) {
       setRetention(data)
       setRetentionDays(data.retention_days)
       setDnsRetentionDays(data.dns_retention_days)
-      setRetentionTime(data.retention_time ?? RETENTION_TIME_DEFAULT)
+      setRetentionTime(data.retention_time || RETENTION_TIME_DEFAULT)
     }).catch(err => {
       console.error('Failed to load retention config:', err)
       setRetentionLoadError(err.message || 'Failed to load retention settings')
@@ -651,7 +651,7 @@ export default function SettingsDataBackups({ totalLogs, storage, onSaved }) {
   const retentionDirty = retention && (
     retentionDays !== retention.retention_days ||
     dnsRetentionDays !== retention.dns_retention_days ||
-    retentionTime !== (retention.retention_time ?? RETENTION_TIME_DEFAULT)
+    retentionTime !== (retention.retention_time || RETENTION_TIME_DEFAULT)
   )
 
   async function saveRetention() {
@@ -991,7 +991,7 @@ export default function SettingsDataBackups({ totalLogs, storage, onSaved }) {
           <div className="px-5 py-3 flex items-center justify-between">
             <p className="text-sm text-gray-500">
               {totalLogs != null && <>{totalLogs.toLocaleString()} logs stored · </>}
-              Cleanup runs daily at {retention?.retention_time ?? RETENTION_TIME_DEFAULT}
+              Cleanup runs daily at {retention?.retention_time || RETENTION_TIME_DEFAULT}
             </p>
             <div className="flex items-center gap-3">
               {retentionMsg && (

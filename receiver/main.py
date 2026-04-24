@@ -355,8 +355,8 @@ def run_scheduler(db: Database, enricher: Enricher, blacklist_fetcher: Blacklist
     pull_blacklist()
 
     # Run retention cleanup once at startup so the first cleanup does not have
-    # to wait up to RETENTION_INTERVAL_HOURS before executing.
-    retention_cleanup()
+    # to wait until the scheduled daily window before executing.
+    _retention_cleanup(db)
 
     while True:
         _scheduler_tick(db)

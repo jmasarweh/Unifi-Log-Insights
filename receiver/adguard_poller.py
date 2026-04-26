@@ -460,6 +460,7 @@ class _ClientCache:
         networks: list[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, str]] | None = None,
         macs:     dict[str, str] | None = None,
     ):
+        """Store pre-parsed lookup tables for exact IPs, CIDR networks, and MAC addresses."""
         self._exact    = exact    or {}
         self._networks = networks or []
         self._macs     = macs     or {}

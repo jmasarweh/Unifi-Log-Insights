@@ -12,7 +12,7 @@ import json
 import logging
 import time
 from contextlib import contextmanager
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 import psycopg2
 import psycopg2.errors
@@ -670,6 +670,15 @@ END $$;""",
                 WHERE log_type = 'firewall'
                   AND service_name IS NULL
                   AND dst_port IS NOT NULL""",
+            # ── Issue #98: persistent rDNS cache (DB-backed cold tier) ─────
+            """CREATE TABLE IF NOT EXISTS rdns_cache (
+                ip            INET PRIMARY KEY,
+                hostname      VARCHAR(255),
+                status        VARCHAR(16) NOT NULL CHECK (status IN ('success', 'failure', 'transient')),
+                looked_up_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )""",
+            """CREATE INDEX IF NOT EXISTS idx_rdns_cache_looked_up_at
+                ON rdns_cache (looked_up_at)""",
         ]
         try:
             with self.get_conn() as conn:
@@ -777,6 +786,18 @@ END $$;""",
                         logger.critical(
                             "FATAL: Critical index 'idx_logs_fw_block_null_threat_src' missing after "
                             "schema migration. The database user '%s' likely lacks CREATE INDEX privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
+                    # Issue #98: validate rdns_cache exists (loud failure if
+                    # InsufficientPrivilege silently skipped the migration)
+                    vcur.execute("""SELECT 1 FROM information_schema.tables
+                                   WHERE table_schema = 'public' AND table_name = 'rdns_cache'""")
+                    if not vcur.fetchone():
+                        logger.critical(
+                            "FATAL: 'rdns_cache' table missing after schema migration. "
+                            "The database user '%s' likely lacks CREATE TABLE privilege. %s",
                             db_user, grant_hint
                         )
                         sys.exit(1)
@@ -1677,6 +1698,62 @@ END $$;""",
                     ON CONFLICT (key) DO UPDATE
                     SET value = EXCLUDED.value, updated_at = NOW()
                 """, [key, Json(value)])  # Use Json() for proper JSONB handling
+
+
+    # ── rDNS cache (issue #98) ───────────────────────────────────────────────
+
+    def get_rdns_cache(self, ip: str) -> Optional[dict]:
+        """Read-through DB cache for reverse-DNS results.
+
+        Returns {'hostname': str|None, 'status': 'success'|'failure'|'transient',
+        'age_seconds': int} or None if no row exists. Age is computed inline so
+        the caller can compare against per-status TTLs without a second query.
+        """
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT hostname, status, "
+                    "       EXTRACT(EPOCH FROM NOW() - looked_up_at)::bigint AS age_seconds "
+                    "FROM rdns_cache WHERE ip = %s",
+                    [ip]
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return {
+                    'hostname': row[0],
+                    'status': row[1],
+                    'age_seconds': int(row[2]),
+                }
+
+    def set_rdns_cache(self, ip: str, hostname: Optional[str], status: str):
+        """Upsert an rDNS cache entry. Always refreshes looked_up_at."""
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO rdns_cache (ip, hostname, status, looked_up_at) "
+                    "VALUES (%s, %s, %s, NOW()) "
+                    "ON CONFLICT (ip) DO UPDATE SET "
+                    "  hostname = EXCLUDED.hostname, "
+                    "  status = EXCLUDED.status, "
+                    "  looked_up_at = NOW()",
+                    [ip, hostname, status]
+                )
+
+    def cleanup_rdns_cache(self) -> int:
+        """Delete rdns_cache rows older than the longest TTL + 1d slack.
+
+        Returns deleted row count. 8 days = 7d (longest TTL = failure) + 1d slack.
+        Any row older than that is expired by every status policy and unreachable
+        for read-through hits. Cheap — uses idx_rdns_cache_looked_up_at.
+        """
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM rdns_cache "
+                    "WHERE looked_up_at < NOW() - INTERVAL '8 days'"
+                )
+                return cur.rowcount
 
 
     # ── UniFi client / device cache ──────────────────────────────────────────

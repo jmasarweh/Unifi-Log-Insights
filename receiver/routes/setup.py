@@ -403,6 +403,7 @@ _UI_SETTINGS_DEFAULTS = {
     'ui_theme': 'dark',
     'ui_block_highlight': 'on',
     'ui_block_highlight_threshold': 0,
+    'ui_csv_export_unifi_raw_log': 'off',
     'wifi_processing_enabled': True,
     'system_processing_enabled': True,
 }
@@ -413,6 +414,7 @@ _UI_SETTINGS_VALID = {
     'ui_theme': {'dark', 'light'},
     'ui_block_highlight': {'on', 'off'},
     'ui_block_highlight_threshold': (0, 100),
+    'ui_csv_export_unifi_raw_log': {'on', 'off'},
     'wifi_processing_enabled': {True, False},
     'system_processing_enabled': {True, False},
 }

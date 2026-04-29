@@ -530,7 +530,10 @@ class BackfillTask:
 
                 affected_remote_ips.add(dst_ip)
                 geo = self.geoip.lookup(dst_ip)
-                rdns = self.rdns.lookup(dst_ip)
+                if self.enricher._rdns_enabled:
+                    rdns = self.rdns.lookup(dst_ip)
+                else:
+                    rdns = {'rdns': None}
 
                 updates.append((
                     geo.get('geo_country'), geo.get('geo_city'),

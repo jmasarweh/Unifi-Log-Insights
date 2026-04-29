@@ -25,6 +25,70 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TTL_SECONDS = 86400
 
+# ── Bool-setting helpers (env + DB shared parsing) ───────────────────────────
+
+_TRUE_TOKENS = ('1', 'true', 'yes', 'on')
+_FALSE_TOKENS = ('0', 'false', 'no', 'off')
+
+
+def _parse_bool_setting(value, default=None):
+    """Strictly parse a bool setting. Accepts bool, integer 0/1, or recognised
+    string tokens; otherwise returns default. Used for both env and DB values
+    to defend against stringly-typed values arriving via config import
+    (system_config bypasses the PUT-time validation in routes/setup.py).
+
+    `default=None` lets callers distinguish "unrecognised" from "valid False":
+      - validation paths pass default=None and treat None as a parse error
+      - resolution paths pass default=True (or False) for fall-back semantics
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in _TRUE_TOKENS:
+            return True
+        if token in _FALSE_TOKENS:
+            return False
+    return default
+
+
+def _resolve_rdns_enabled(db) -> bool:
+    """Resolve effective rdns_enabled flag. env > system_config > default(True).
+
+    Unrecognised env values warn-and-fall-through to DB rather than silently
+    disabling rDNS (a typo like RDNS_ENABLED=fasle must NOT disable lookups).
+    Tolerates db=None (test paths, pre-init). Never raises.
+    """
+    # Local import: existing enrichment.py imports `get_config` lazily inside
+    # methods. Keeping it local here preserves that convention and avoids
+    # changing module import-time behaviour or risking a circular import.
+    from db import get_config
+
+    env = os.environ.get('RDNS_ENABLED')
+    if env is not None:
+        token = env.strip().lower()
+        if token in _TRUE_TOKENS:
+            return True
+        if token in _FALSE_TOKENS:
+            return False
+        if token:
+            logger.warning(
+                "RDNS_ENABLED=%r not recognised; falling through to DB/default. "
+                "Use one of: %s, %s",
+                env, ', '.join(_TRUE_TOKENS), ', '.join(_FALSE_TOKENS),
+            )
+        # token == '' or unrecognised → fall through
+    if db is None:
+        return True
+    try:
+        return _parse_bool_setting(get_config(db, 'rdns_enabled', True), default=True)
+    except Exception:
+        logger.debug("Failed to read rdns_enabled from system_config", exc_info=True)
+        return True
+
+
 # ── Private/reserved IP detection ─────────────────────────────────────────────
 
 def is_public_ip(ip_str: str) -> bool:
@@ -566,32 +630,128 @@ class AbuseIPDBEnricher:
 # ── Reverse DNS ───────────────────────────────────────────────────────────────
 
 class RDNSEnricher:
-    """Reverse DNS (PTR) lookups with caching."""
+    """Reverse DNS (PTR) lookups with two-tier caching (in-memory + DB).
+
+    See issue #98 — the DB cold tier survives container restarts and the per-
+    status TTLs let durable failures be cached longer than transient flaps.
+    """
 
     MEMORY_CACHE_MAX_ENTRIES = 20000
 
-    def __init__(self, timeout: float = 2.0):
+    POSITIVE_TTL_SECONDS = 86400            # 24h — successful resolution
+    NEGATIVE_TTL_SECONDS = 7 * 86400        # 7d  — durable DNS-layer failure
+    TRANSIENT_TTL_SECONDS = 3600            # 1h  — transient (flap, TRY_AGAIN, OSError)
+    _TTL_BY_STATUS = {
+        'success': POSITIVE_TTL_SECONDS,
+        'failure': NEGATIVE_TTL_SECONDS,
+        'transient': TRANSIENT_TTL_SECONDS,
+    }
+    _TRY_AGAIN_HERRNO = 2  # netdb.h: TRY_AGAIN — transient name-server failure
+
+    def __init__(self, timeout: float = 2.0, db=None):
         self.timeout = timeout
+        # Cache ceiling = longest TTL so per-status expires_at decides freshness
+        # without being capped by a shorter cache-wide TTL.
         self.cache = TTLCache(
-            ttl_seconds=DEFAULT_TTL_SECONDS,
+            ttl_seconds=self.NEGATIVE_TTL_SECONDS,
             max_entries=self.MEMORY_CACHE_MAX_ENTRIES,
-        )  # 24h cache
+        )
+        self._db = db
+        self._db_failed = False  # one-shot WARNING de-duplication
+
+    def _db_get(self, ip_str: str) -> Optional[dict]:
+        """Wrap DB read with fault-tolerance. Never raises."""
+        if self._db is None:
+            return None
+        try:
+            return self._db.get_rdns_cache(ip_str)
+        except Exception:
+            if not self._db_failed:
+                logger.warning(
+                    "rdns_cache DB read failed (degrading to memory-only)",
+                    exc_info=True,
+                )
+                self._db_failed = True
+            else:
+                logger.debug("rdns_cache DB read failed", exc_info=True)
+            return None
+
+    def _db_set(self, ip_str: str, hostname: Optional[str], status: str):
+        """Wrap DB write with fault-tolerance. Never raises."""
+        if self._db is None:
+            return
+        try:
+            self._db.set_rdns_cache(ip_str, hostname, status)
+        except Exception:
+            if not self._db_failed:
+                logger.warning(
+                    "rdns_cache DB write failed (degrading to memory-only)",
+                    exc_info=True,
+                )
+                self._db_failed = True
+            else:
+                logger.debug("rdns_cache DB write failed", exc_info=True)
 
     def lookup(self, ip_str: str) -> dict:
-        """Perform rDNS lookup. Returns {'rdns': hostname} or {}."""
-        cached = self.cache.get(ip_str)
-        if cached is not None:
-            return cached
+        """Perform rDNS lookup. Returns {'rdns': hostname} or {'rdns': None}.
 
+        Hot tier (in-memory) → cold tier (DB) → live PTR. Per-status TTL.
+        Public return shape never leaks internal status/expires_at.
+        """
+        now = time.time()
+
+        # Hot tier — honour per-entry expires_at, not cache-wide TTL
+        entry = self.cache.get(ip_str)
+        if entry is not None:
+            if now < entry.get('expires_at', 0):
+                return {'rdns': entry.get('rdns')}
+            # Stale per status; free memory and fall through
+            self.cache.delete(ip_str)
+
+        # Cold tier — DB read-through. Do NOT rewrite looked_up_at on hit.
+        row = self._db_get(ip_str)
+        if row is not None:
+            status = row.get('status')
+            ttl = self._TTL_BY_STATUS.get(status)
+            age = row.get('age_seconds') or 0
+            if ttl is not None and age < ttl:
+                # Use REMAINING DB lifetime so a near-expired DB row is not
+                # extended in memory after a restart/read-through.
+                expires_at = now + max(0, ttl - age)
+                # Only success rows expose hostname; defend against a stale
+                # hostname stored alongside a failure/transient status.
+                hostname = row.get('hostname') if status == 'success' else None
+                self.cache.set(ip_str, {
+                    'rdns': hostname,
+                    'status': status,
+                    'expires_at': expires_at,
+                })
+                return {'rdns': hostname}
+
+        # Live PTR — preserve existing 2s contract via setdefaulttimeout.
+        socket.setdefaulttimeout(self.timeout)
         try:
-            socket.setdefaulttimeout(self.timeout)
             hostname, _, _ = socket.gethostbyaddr(ip_str)
-            result = {'rdns': hostname}
-        except (socket.herror, socket.gaierror, socket.timeout, OSError):
-            result = {'rdns': None}
+            status = 'success'
+            value_rdns = hostname
+        except socket.gaierror as e:
+            status = 'transient' if e.errno == socket.EAI_AGAIN else 'failure'
+            value_rdns = None
+        except socket.herror as e:
+            status = 'transient' if (e.args and e.args[0] == self._TRY_AGAIN_HERRNO) else 'failure'
+            value_rdns = None
+        except (socket.timeout, OSError):
+            status = 'transient'
+            value_rdns = None
 
-        self.cache.set(ip_str, result)
-        return result
+        # Write to BOTH tiers
+        self._db_set(ip_str, value_rdns, status)
+        self.cache.set(ip_str, {
+            'rdns': value_rdns,
+            'status': status,
+            'expires_at': time.time() + self._TTL_BY_STATUS[status],
+        })
+        return {'rdns': value_rdns}
 
 
 # ── Main Enrichment Pipeline ──────────────────────────────────────────────────
@@ -607,7 +767,7 @@ class Enricher:
     def __init__(self, db=None, unifi=None):
         self.geoip = GeoIPEnricher()
         self.abuseipdb = AbuseIPDBEnricher(db=db)
-        self.rdns = RDNSEnricher()
+        self.rdns = RDNSEnricher(db=db)
         self.unifi = unifi
         self._db = db
         self._known_wan_ip = None
@@ -634,6 +794,9 @@ class Enricher:
                 self._pihole_enrichment = value if value in ('none', 'geoip', 'threat', 'both') else 'both'
             except Exception:
                 logger.debug("Failed to pre-load exclusions from DB", exc_info=True)
+
+        # rDNS opt-out toggle: env > system_config > default(True)
+        self._rdns_enabled = _resolve_rdns_enabled(db)
 
     def _is_remote_ip(self, ip_str: str) -> bool:
         """Check if IP is remote (enrichable): public, not our WAN, not gateway."""
@@ -766,8 +929,8 @@ class Enricher:
             geo_data = self.geoip.lookup(ip_to_enrich)
             parsed.update(geo_data)
 
-        # rDNS (skip for pihole — domain already in dns_query)
-        if not is_pihole:
+        # rDNS (skip for pihole — domain already in dns_query, or operator opt-out)
+        if not is_pihole and self._rdns_enabled:
             rdns_data = self.rdns.lookup(ip_to_enrich)
             if rdns_data.get('rdns'):
                 parsed['rdns'] = rdns_data['rdns']
@@ -818,6 +981,8 @@ class Enricher:
                 self._pihole_enrichment = value if value in ('none', 'geoip', 'threat', 'both') else 'both'
             except Exception:
                 logger.debug("Failed to reload pihole_enrichment config", exc_info=True)
+        # rDNS toggle reload — env stays authoritative on reload as well.
+        self._rdns_enabled = _resolve_rdns_enabled(self._db)
 
     def reload_geoip(self):
         """Reload GeoIP databases (called via SIGUSR1)."""

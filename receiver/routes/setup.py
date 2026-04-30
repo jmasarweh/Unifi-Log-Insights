@@ -50,6 +50,7 @@ def _prune_dismissed(config_key: str, configured_ifaces: set) -> None:
 @router.get("/api/config")
 def get_current_config():
     """Return current system configuration."""
+    from enrichment import _resolve_rdns_enabled
     return {
         "wan_interfaces": get_config(enricher_db, "wan_interfaces", ["ppp0"]),
         "interface_labels": get_config(enricher_db, "interface_labels", {}),
@@ -66,6 +67,10 @@ def get_current_config():
         # "nothing dismissed" and new VPNs trigger the toast again.
         "vpn_toast_dismissed": _read_dismissed_list("vpn_toast_dismissed"),
         **{k: get_config(enricher_db, k, v) for k, v in _UI_SETTINGS_DEFAULTS.items()},
+        # rdns_enabled is intentionally NOT in _UI_SETTINGS_DEFAULTS (UI's
+        # save-everything pattern would silently persist env-overridden values).
+        # Surface the effective value here so /api/config and /api/settings/rdns agree.
+        "rdns_enabled": _resolve_rdns_enabled(enricher_db),
         "mcp_enabled": get_config(enricher_db, "mcp_enabled", False),
         "mcp_audit_enabled": get_config(enricher_db, "mcp_audit_enabled", False),
         "mcp_audit_retention_days": get_config(enricher_db, "mcp_audit_retention_days", 10),
@@ -403,6 +408,7 @@ _UI_SETTINGS_DEFAULTS = {
     'ui_theme': 'dark',
     'ui_block_highlight': 'on',
     'ui_block_highlight_threshold': 0,
+    'ui_csv_export_unifi_raw_log': 'off',
     'wifi_processing_enabled': True,
     'system_processing_enabled': True,
 }
@@ -413,6 +419,7 @@ _UI_SETTINGS_VALID = {
     'ui_theme': {'dark', 'light'},
     'ui_block_highlight': {'on', 'off'},
     'ui_block_highlight_threshold': (0, 100),
+    'ui_csv_export_unifi_raw_log': {'on', 'off'},
     'wifi_processing_enabled': {True, False},
     'system_processing_enabled': {True, False},
 }
@@ -433,6 +440,9 @@ _EXPORTABLE_KEYS = [
     'retention_days', 'dns_retention_days', 'retention_time',
     'mcp_enabled', 'mcp_audit_enabled', 'mcp_audit_retention_days', 'mcp_allowed_origins',
     'auth_session_ttl_hours', 'audit_log_retention_days',
+    # rdns_enabled lives outside _UI_SETTINGS_DEFAULTS but should still
+    # round-trip via export/import.
+    'rdns_enabled',
     *_UI_SETTINGS_DEFAULTS.keys(),
 ]
 # NOTE: unifi_username, unifi_password, and unifi_site_id are NEVER exported
@@ -544,6 +554,13 @@ def import_config(body: dict):
                 continue
         elif key == 'retention_time':
             parsed = parse_retention_time(val)
+            if parsed is None:
+                failed_keys.append(key)
+                continue
+            val = parsed
+        elif key == 'rdns_enabled':
+            from enrichment import _parse_bool_setting  # local import — see Phase 4.4 note
+            parsed = _parse_bool_setting(val, default=None)
             if parsed is None:
                 failed_keys.append(key)
                 continue
@@ -1029,4 +1046,64 @@ def update_ui_settings(body: dict):
     # Signal receiver to reload only when processing settings actually changed
     if actually_changed_processing:
         signal_receiver()
+    return {"success": True}
+
+
+# ── rDNS opt-out toggle (issue #98) ──────────────────────────────────────────
+# Dedicated route — kept out of /api/settings/ui because the UI panel saves
+# the entire settings object on any change, which would silently persist an
+# env-overridden value into system_config.
+
+@router.get("/api/settings/rdns")
+def get_rdns_settings():
+    """Return effective rdns_enabled, plus raw stored value and source.
+
+    `source` is 'env' ONLY when env is set to a recognised true/false token.
+    Blank or unrecognised env values fall through to DB/default and `source`
+    reflects that, so operators are not misled into thinking env is in
+    control when it isn't.
+
+    `stored_value` is None when no system_config row exists (distinct from
+    a stored False).
+    """
+    from enrichment import (
+        _resolve_rdns_enabled, _parse_bool_setting, _TRUE_TOKENS, _FALSE_TOKENS,
+    )
+    env = os.environ.get('RDNS_ENABLED')
+    env_token = env.strip().lower() if env is not None else None
+    env_recognised = env_token in _TRUE_TOKENS or env_token in _FALSE_TOKENS
+
+    raw = get_config(enricher_db, 'rdns_enabled', None)  # None → no row
+    stored = _parse_bool_setting(raw, default=None) if raw is not None else None
+    effective = _resolve_rdns_enabled(enricher_db)
+
+    if env_recognised:
+        source = 'env'
+    elif stored is not None:
+        source = 'system_config'
+    else:
+        source = 'default'
+
+    return {
+        'rdns_enabled': effective,   # what the receiver actually does
+        'stored_value': stored,      # None | True | False (None = no row)
+        'source': source,            # 'env' | 'system_config' | 'default'
+    }
+
+
+@router.put("/api/settings/rdns")
+def update_rdns_settings(body: dict):
+    """Persist rdns_enabled to system_config and signal receiver to reload."""
+    from enrichment import _parse_bool_setting
+    if 'rdns_enabled' not in body:
+        raise HTTPException(400, "Missing 'rdns_enabled' in body")
+    parsed = _parse_bool_setting(body['rdns_enabled'], default=None)
+    if parsed is None:
+        raise HTTPException(400, f"Invalid rdns_enabled value: {body['rdns_enabled']!r}")
+    # Compare against raw stored value (None-safe), not against default-coerced True
+    raw_current = get_config(enricher_db, 'rdns_enabled', None)
+    current = _parse_bool_setting(raw_current, default=None) if raw_current is not None else None
+    if parsed != current:
+        set_config(enricher_db, 'rdns_enabled', parsed)
+        signal_receiver()  # SIGUSR2 → enricher reloads via _resolve_rdns_enabled
     return {"success": True}

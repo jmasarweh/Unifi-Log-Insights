@@ -124,3 +124,61 @@ def test_scheduler_tick_is_noop_when_event_unset(main_module):
     # Event unset — tick must not consult the resolver again
     main_module._scheduler_tick(db)
     assert resolver.call_count == 1, 'resolver must not be called when Event is clear'
+
+
+# ── rdns_cache retention sweep (issue #98) ──────────────────────────────────
+
+def test_retention_cleanup_invokes_cleanup_rdns_cache(main_module):
+    """Each scheduled retention pass must also sweep rdns_cache."""
+    db = MagicMock()
+    main_module.Database.resolve_retention_days = MagicMock(
+        return_value=SimpleNamespace(general=60, dns=10))
+    db.run_retention_cleanup = MagicMock(return_value={
+        'status': 'complete', 'deleted_so_far': 0, 'error': None,
+    })
+    db.cleanup_rdns_cache = MagicMock(return_value=0)
+
+    main_module._retention_cleanup(db)
+
+    db.cleanup_rdns_cache.assert_called_once_with()
+
+
+def test_retention_cleanup_logs_nonzero_rdns_sweep(main_module, caplog):
+    import logging
+    db = MagicMock()
+    main_module.Database.resolve_retention_days = MagicMock(
+        return_value=SimpleNamespace(general=60, dns=10))
+    db.run_retention_cleanup = MagicMock(return_value={
+        'status': 'complete', 'deleted_so_far': 0, 'error': None,
+    })
+    db.cleanup_rdns_cache = MagicMock(return_value=42)
+
+    with caplog.at_level(logging.INFO):
+        main_module._retention_cleanup(db)
+
+    assert any('rdns_cache retention sweep deleted 42' in rec.message
+               for rec in caplog.records)
+
+
+def test_retention_cleanup_rdns_failure_isolated_from_log_retention(main_module, caplog):
+    """An rdns_cache sweep error must not be misreported as log-retention failure."""
+    import logging
+    db = MagicMock()
+    main_module.Database.resolve_retention_days = MagicMock(
+        return_value=SimpleNamespace(general=60, dns=10))
+    db.run_retention_cleanup = MagicMock(return_value={
+        'status': 'complete', 'deleted_so_far': 100, 'error': None,
+    })
+    db.cleanup_rdns_cache = MagicMock(side_effect=RuntimeError('db gone'))
+
+    with caplog.at_level(logging.WARNING):
+        main_module._retention_cleanup(db)
+
+    # Log retention reported success (no error/warning about it)
+    log_retention_errors = [r for r in caplog.records
+                            if r.levelno >= logging.ERROR
+                            and 'Retention cleanup failed' in r.message]
+    assert log_retention_errors == []
+    # rdns sweep failure logged as WARNING
+    assert any(r.levelno == logging.WARNING and 'rdns_cache retention sweep failed' in r.message
+               for r in caplog.records)

@@ -273,6 +273,15 @@ def _retention_cleanup(db: Database):
     except Exception as e:
         logger.error("Retention cleanup failed: %s", e)
 
+    # rdns_cache sweep — independent pass so a failure here is not misreported
+    # as log-retention failure.
+    try:
+        deleted = db.cleanup_rdns_cache()
+        if deleted:
+            logger.info("rdns_cache retention sweep deleted %d rows", deleted)
+    except Exception as e:
+        logger.warning("rdns_cache retention sweep failed: %s", e)
+
 
 def _register_retention_job(db: Database):
     """(Re-)register the daily retention cleanup with the saved time.

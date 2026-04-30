@@ -481,6 +481,9 @@ def export_csv_endpoint(
         'abuse_is_tor', 'remote_ip',
     ]
 
+    if get_config(enricher_db, 'ui_csv_export_unifi_raw_log', 'off') == 'on':
+        export_columns.append('raw_log')
+
     # CSV header includes device name + VLAN + VPN network columns resolved via live JOIN
     csv_columns = export_columns + [
         'src_device_name', 'dst_device_name',

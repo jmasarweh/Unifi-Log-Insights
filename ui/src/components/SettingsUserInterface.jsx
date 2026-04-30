@@ -34,7 +34,7 @@ export default function SettingsUserInterface({ onSaved }) {
       setSettings(data)
     }).catch(err => {
       console.error('Failed to load UI settings:', err)
-      setSettings({ ui_country_display: 'flag_name', ui_ip_subline: 'none', ui_theme: 'dark', ui_block_highlight: 'on', ui_block_highlight_threshold: 0 })
+      setSettings({ ui_country_display: 'flag_name', ui_ip_subline: 'none', ui_theme: 'dark', ui_block_highlight: 'on', ui_block_highlight_threshold: 0, ui_csv_export_unifi_raw_log: 'off' })
     })
   }, [])
 
@@ -143,6 +143,24 @@ export default function SettingsUserInterface({ onSaved }) {
                 />
               </div>
             )}
+          </div>
+
+          <div className="border-t border-gray-800" />
+
+          {/* CSV Export */}
+          <div className="p-5">
+            <p className="text-base text-gray-200 font-medium">CSV Export</p>
+            <p className="text-sm text-gray-500 mb-3">Control the contents of CSV log exports.</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.ui_csv_export_unifi_raw_log === 'on'}
+                onChange={e => update('ui_csv_export_unifi_raw_log', e.target.checked ? 'on' : 'off')}
+                className="ui-checkbox"
+              />
+              <span className="text-sm text-gray-300">Include Raw Logs from UniFi in CSV Export</span>
+            </label>
+            <p className="text-sm text-gray-500 mt-1 ml-6">Appends the raw syslog message from the gateway as an extra column. Useful when sharing logs with Ubiquiti support.</p>
           </div>
 
           <div className="border-t border-gray-800" />

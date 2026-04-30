@@ -85,8 +85,15 @@ export default function SettingsAdguard() {
     setSaveStatus(null)
     setTestResult(null)
     try {
-      await updateAdguardConfig(draft)
-      setSaveStatus({ type: 'saved', text: 'Settings saved' })
+      const result = await updateAdguardConfig(draft)
+      if (result?.ok && result?.reload_signaled === false) {
+        setSaveStatus({
+          type: 'warning',
+          text: 'Settings saved, but receiver reload was not signaled (restart may be required)',
+        })
+      } else {
+        setSaveStatus({ type: 'saved', text: 'Settings saved' })
+      }
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       saveTimerRef.current = setTimeout(() => setSaveStatus(null), 3000)
       setDraft(prev => ({ ...prev, password: '' }))
@@ -130,13 +137,15 @@ export default function SettingsAdguard() {
   async function handleToggle() {
     if (disabling) return
     if (draft.enabled) {
+      const prevDraft = draft
       setDisabling(true)
       setDraft(d => ({ ...d, enabled: false }))
       try {
-        await updateAdguardConfig({ ...draft, enabled: false })
+        const disablePayload = { ...settings, enabled: false }
+        await updateAdguardConfig(disablePayload)
         await loadConfig()
       } catch (e) {
-        setDraft(d => ({ ...d, enabled: true }))
+        setDraft(prevDraft)
         setSaveStatus({ type: 'error', text: e.message || 'Failed to disable' })
       } finally {
         setDisabling(false)
@@ -313,6 +322,7 @@ export default function SettingsAdguard() {
           <div className="px-5 py-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
               {saveStatus?.type === 'saved' && <span className="text-sm text-emerald-400">{saveStatus.text}</span>}
+              {saveStatus?.type === 'warning' && <span className="text-sm text-yellow-300">{saveStatus.text}</span>}
               {saveStatus?.type === 'error' && <span className="text-sm text-red-400">{saveStatus.text}</span>}
             </div>
             <button

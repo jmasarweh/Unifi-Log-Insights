@@ -119,8 +119,9 @@ def test_adguard_connection(body: AdGuardTestRequest):
 
     Returns version and running status on success, or 400 with an error message.
     """
+    normalized_host = body.host.strip().rstrip('/')
     try:
-        info = test_connection(body.host, body.username, body.password)
+        info = test_connection(normalized_host, body.username, body.password)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f'Connection failed: {e}') from e
     return {'ok': True, 'version': info.get('version', ''), 'running': info.get('running', False)}

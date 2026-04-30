@@ -1121,9 +1121,10 @@ END $$;""",
                     )
                     row = cur.fetchone()
                     db_host = (row[0] or '').strip().rstrip('/') if row else ''
-                    if db_host != expected_host:
+                    expected_host_norm = expected_host.strip().rstrip('/')
+                    if db_host != expected_host_norm:
                         raise AdGuardHostMismatch(
-                            f"expected {expected_host!r}, DB has {db_host!r}"
+                            f"expected {expected_host_norm!r}, DB has {db_host!r}"
                         )
                 extras.execute_batch(cur, sql, entries, page_size=100)
                 # execute_batch runs multiple internal rounds; cur.rowcount only

@@ -679,6 +679,28 @@ END $$;""",
             )""",
             """CREATE INDEX IF NOT EXISTS idx_rdns_cache_looked_up_at
                 ON rdns_cache (looked_up_at)""",
+            # ── Issue #92: aggressive autovacuum for high-churn logs table ──
+            # Default scale_factor=0.2 means autovacuum waits until 20% of rows
+            # are dead before reclaiming space. On a large table that threshold
+            # is never reached quickly enough after batch deletes, causing
+            # unbounded bloat. Tuned settings trigger at 1% dead tuples + lower
+            # I/O cost delays for faster reclamation. Idempotent: safe on every boot.
+            """ALTER TABLE logs SET (
+                autovacuum_vacuum_scale_factor  = 0.01,
+                autovacuum_vacuum_cost_delay    = 2,
+                autovacuum_analyze_scale_factor = 0.02,
+                autovacuum_vacuum_cost_limit    = 10000
+            )""",
+            # Log autovacuum operations > 60 seconds on this database for observability.
+            # Lower to '0' to log every autovacuum/autoanalyze; set to '60000' to only
+            # log operations > 1 minute if the volume is too high in production.
+            """DO $$
+BEGIN
+    EXECUTE format(
+        'ALTER DATABASE %I SET log_autovacuum_min_duration = ''60000''',
+        current_database()
+    );
+END $$;""",
         ]
         try:
             with self.get_conn() as conn:

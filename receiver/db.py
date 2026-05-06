@@ -259,6 +259,7 @@ class Database:
     ]
 
     def __init__(self, conn_params: dict | None = None, min_conn: int = 2, max_conn: int = 10):
+        """Configure connection parameters and pool size limits."""
         self.conn_params = conn_params or build_conn_params()
         self.pool = None
         self.min_conn = min_conn
@@ -679,6 +680,27 @@ END $$;""",
             )""",
             """CREATE INDEX IF NOT EXISTS idx_rdns_cache_looked_up_at
                 ON rdns_cache (looked_up_at)""",
+            # ── Autovacuum tuning for the high-churn logs table ──────────
+            # Default scale_factor=0.2 triggers autovacuum only after 20 % of
+            # rows are dead — on a 33 M-row table that is 6.6 M dead tuples.
+            # Lower thresholds ensure autovacuum fires promptly after batch
+            # retention deletes. ALTER TABLE logs SET is idempotent: safe to
+            # re-apply on every boot (no IF NOT EXISTS equivalent needed).
+            """ALTER TABLE logs SET (
+                autovacuum_vacuum_scale_factor  = 0.01,
+                autovacuum_vacuum_cost_delay    = 2,
+                autovacuum_analyze_scale_factor = 0.02,
+                autovacuum_vacuum_cost_limit    = 10000
+            )""",
+            # Log autovacuum runs that exceed 60 s so operators can verify
+            # the tuned scale_factor is firing after large retention cleanups.
+            # Requires ALTER DATABASE privilege — skipped silently if missing.
+            """DO $$ BEGIN
+                EXECUTE format(
+                    'ALTER DATABASE %I SET log_autovacuum_min_duration = ''60000''',
+                    current_database()
+                );
+            END $$""",
         ]
         try:
             with self.get_conn() as conn:
@@ -1055,6 +1077,22 @@ END $$;""",
     # ── Retention cleanup ────────────────────────────────────────────────────
 
     RETENTION_BATCH_SIZE = 5_000
+    # Only run an explicit VACUUM ANALYZE after cleanup when the number of
+    # deleted rows is above this threshold.  Trivial runs (a handful of rows)
+    # are handled by tuned autovacuum, avoiding the cost of a full-table scan.
+    # Set equal to RETENTION_BATCH_SIZE so VACUUM only fires after at least one
+    # full batch — sub-batch deletions are cheap enough for autovacuum alone.
+    VACUUM_MIN_DELETED = 5_000
+    # Abort explicit VACUUM ANALYZE if it exceeds this duration.  A stuck VACUUM
+    # should not block the next cleanup cycle or hold a connection indefinitely.
+    VACUUM_TIMEOUT_SECS = 300
+    # Number of times to retry a transient VACUUM failure before giving up.
+    # Does not retry on query-cancelled (timeout) — those are intentional aborts.
+    # In pathological cases (table too large to vacuum within VACUUM_TIMEOUT_SECS)
+    # the tuned autovacuum scale_factor in init.sql handles dead-tuple reclaim.
+    # Monitor pg_stat_user_tables.n_dead_tup post-deploy to verify autovacuum
+    # is keeping up when explicit VACUUM is skipped.
+    VACUUM_MAX_RETRIES = 2
 
     @staticmethod
     def validate_retention_days(general_days: int, dns_days: int):
@@ -1239,7 +1277,76 @@ END $$;""",
                     "general_retention=%d days, dns_retention=%d days)",
                     result['deleted_so_far'], result['dns_deleted'],
                     result['non_dns_deleted'], general_days, dns_days)
+        if result['deleted_so_far'] > 0:
+            # Only run an explicit VACUUM ANALYZE when enough rows were deleted
+            # to justify the full-table scan cost.  Smaller cleanups are handled
+            # promptly by the tuned autovacuum settings in init.sql.
+            # VACUUM cannot run inside a transaction — use a dedicated ephemeral
+            # connection (never returned to the pool) so autocommit mode cannot
+            # leak back to other callers.
+            if result['deleted_so_far'] >= self.VACUUM_MIN_DELETED:
+                self._run_explicit_vacuum()
+            else:
+                logger.debug(
+                    "Post-cleanup VACUUM skipped (deleted=%d < threshold=%d); "
+                    "autovacuum will handle remaining dead tuples",
+                    result['deleted_so_far'], self.VACUUM_MIN_DELETED,
+                )
         return result
+
+    def _run_explicit_vacuum(self) -> None:
+        """Run VACUUM ANALYZE on the logs table with timeout and retry logic.
+
+        Uses a dedicated ephemeral connection in autocommit mode because
+        VACUUM cannot run inside a transaction.  The connection is never
+        returned to the pool so autocommit cannot leak to other callers.
+
+        Non-fatal: failures are logged as warnings; the cleanup result is
+        still returned as successful since autovacuum will eventually reclaim
+        dead tuples via the tuned scale_factor settings in init.sql.
+        """
+        for attempt in range(1, self.VACUUM_MAX_RETRIES + 1):
+            vac_conn = None
+            try:
+                vac_conn = psycopg2.connect(**self.conn_params)
+                vac_conn.autocommit = True
+                with vac_conn.cursor() as cur:
+                    # Enforce a hard timeout so a blocked VACUUM cannot stall
+                    # the next cleanup cycle or hold a connection indefinitely.
+                    cur.execute("SET statement_timeout = %s",
+                                [f"{self.VACUUM_TIMEOUT_SECS}s"])
+                    cur.execute("VACUUM ANALYZE logs")
+                logger.info("Post-cleanup VACUUM ANALYZE complete (attempt %d/%d)",
+                            attempt, self.VACUUM_MAX_RETRIES)
+                return  # success — exit retry loop
+            except psycopg2.errors.QueryCanceled:
+                # statement_timeout fired — VACUUM was taking too long.
+                # Do not retry: if it timed out once it will time out again.
+                logger.warning(
+                    "Post-cleanup VACUUM ANALYZE cancelled after %ds (attempt %d) — "
+                    "autovacuum will handle remaining dead tuples",
+                    self.VACUUM_TIMEOUT_SECS, attempt,
+                )
+                return
+            except psycopg2.Error as exc:
+                logger.warning(
+                    "Post-cleanup VACUUM ANALYZE failed on attempt %d/%d: %s",
+                    attempt, self.VACUUM_MAX_RETRIES, exc,
+                )
+                if attempt >= self.VACUUM_MAX_RETRIES:
+                    logger.warning(
+                        "Post-cleanup VACUUM ANALYZE exhausted %d retries — "
+                        "autovacuum will handle remaining dead tuples",
+                        self.VACUUM_MAX_RETRIES,
+                    )
+                else:
+                    time.sleep(0.5)  # brief backoff before retry
+            finally:
+                if vac_conn:
+                    try:
+                        vac_conn.close()
+                    except psycopg2.Error as close_exc:
+                        logger.debug("Error closing VACUUM connection: %s", close_exc)
 
     def get_stats(self) -> dict:
         """Get basic stats for health check / logging."""

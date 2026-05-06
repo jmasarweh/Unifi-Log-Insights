@@ -22,6 +22,14 @@ from psycopg2.extras import Json
 logger = logging.getLogger(__name__)
 
 
+class AdGuardHostMismatch(Exception):
+    """Raised by insert_adguard_batch when the DB host differs from the expected host.
+
+    This indicates a config change landed between the start of _poll() and the
+    DB commit — the batch is discarded to prevent cursor corruption.
+    """
+
+
 # ── API Key Encryption ────────────────────────────────────────────────────────
 
 def _derive_fernet_key(postgres_password: str) -> bytes:
@@ -679,6 +687,31 @@ END $$;""",
             )""",
             """CREATE INDEX IF NOT EXISTS idx_rdns_cache_looked_up_at
                 ON rdns_cache (looked_up_at)""",
+            # ── AdGuard Home integration ──────────────────────────────────────
+            # adguard_logs is always a new table, so index builds are instantaneous
+            # — ACCESS EXCLUSIVE lock risk is zero. Non-concurrent CREATE INDEX is
+            # correct here because this block runs inside the advisory-lock transaction.
+            """CREATE TABLE IF NOT EXISTS adguard_logs (
+                id             BIGSERIAL PRIMARY KEY,
+                timestamp      TIMESTAMPTZ NOT NULL,
+                client_ip      INET,
+                client_name    TEXT,
+                domain         TEXT NOT NULL DEFAULT '',
+                record_type    TEXT,
+                reason         TEXT,
+                dns_status     TEXT,
+                upstream       TEXT,
+                elapsed_ms     DOUBLE PRECISION,
+                cached         BOOLEAN NOT NULL DEFAULT FALSE,
+                answer_dnssec  BOOLEAN NOT NULL DEFAULT FALSE,
+                rule_text      TEXT,
+                filter_list_id INTEGER,
+                inserted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_adguard_timestamp   ON adguard_logs (timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_adguard_client_ip   ON adguard_logs (client_ip)",
+            "CREATE INDEX IF NOT EXISTS idx_adguard_domain      ON adguard_logs (domain)",
+            "CREATE INDEX IF NOT EXISTS idx_adguard_reason      ON adguard_logs (reason)",
         ]
         try:
             with self.get_conn() as conn:
@@ -802,6 +835,28 @@ END $$;""",
                         )
                         sys.exit(1)
 
+                    # Validate AdGuard Home query log table and its primary index.
+                    vcur.execute("""SELECT 1 FROM information_schema.tables
+                                   WHERE table_schema = 'public'
+                                     AND table_name = 'adguard_logs'""")
+                    if not vcur.fetchone():
+                        logger.critical(
+                            "FATAL: 'adguard_logs' table missing after schema migration. "
+                            "The database user '%s' likely lacks CREATE TABLE privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
+
+                    vcur.execute("""SELECT 1 FROM pg_indexes
+                                   WHERE schemaname = 'public'
+                                     AND indexname = 'idx_adguard_timestamp'""")
+                    if not vcur.fetchone():
+                        logger.critical(
+                            "FATAL: Critical index 'idx_adguard_timestamp' missing after schema "
+                            "migration. The database user '%s' likely lacks CREATE INDEX privilege. %s",
+                            db_user, grant_hint
+                        )
+                        sys.exit(1)
             logger.info("Schema migrations applied and validated.")
         except SystemExit:
             raise
@@ -1022,6 +1077,69 @@ END $$;""",
                     dropped += 1
                     logger.warning("Dropped bad log row: %s — raw: %.200s", row_err, row[-1] if row else '?')
             logger.info("Row-by-row fallback: %d inserted, %d dropped", inserted, dropped)
+
+    def insert_adguard_batch(
+        self,
+        entries: list[dict],
+        new_cursor: str | None = None,
+        expected_host: str | None = None,
+    ) -> int:
+        """Insert a batch of AdGuard Home query log entries and advance the cursor atomically.
+
+        The cursor update (adguard_cursor in system_config) is committed in the
+        same transaction as the row inserts, so only a transaction-commit failure
+        can cause partial application — an extremely rare event.
+
+        If ``expected_host`` is provided, the DB value of ``adguard_host`` is
+        re-read *inside* the transaction and compared before any inserts occur.
+        If they differ, ``AdGuardHostMismatch`` is raised and the transaction is
+        rolled back, preventing cursor corruption when the config changes
+        between the start of a poll cycle and the DB write.
+
+        Returns the number of rows inserted.
+        """
+        if not entries:
+            return 0
+        sql = """
+            INSERT INTO adguard_logs
+                (timestamp, client_ip, client_name, domain, record_type,
+                 reason, dns_status, upstream, elapsed_ms, cached,
+                 answer_dnssec, rule_text, filter_list_id)
+            VALUES
+                (%(timestamp)s, %(client_ip)s, %(client_name)s, %(domain)s,
+                 %(record_type)s, %(reason)s, %(dns_status)s, %(upstream)s,
+                 %(elapsed_ms)s, %(cached)s, %(answer_dnssec)s,
+                 %(rule_text)s, %(filter_list_id)s)
+        """
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                if expected_host is not None:
+                    # Re-read the host inside this transaction to close the TOCTOU
+                    # window between the poll snapshot and the DB write.
+                    cur.execute(
+                        "SELECT value FROM system_config WHERE key = 'adguard_host'"
+                    )
+                    row = cur.fetchone()
+                    db_host = (row[0] or '').strip().rstrip('/') if row else ''
+                    expected_host_norm = expected_host.strip().rstrip('/')
+                    if db_host != expected_host_norm:
+                        raise AdGuardHostMismatch(
+                            f"expected {expected_host_norm!r}, DB has {db_host!r}"
+                        )
+                extras.execute_batch(cur, sql, entries, page_size=100)
+                # execute_batch runs multiple internal rounds; cur.rowcount only
+                # reflects the last round. Use len(entries) — no ON CONFLICT clause
+                # means every row is inserted unconditionally.
+                inserted = len(entries)
+                if new_cursor:
+                    cur.execute(
+                        """INSERT INTO system_config (key, value, updated_at)
+                               VALUES ('adguard_cursor', %s::jsonb, NOW())
+                               ON CONFLICT (key) DO UPDATE
+                               SET value = EXCLUDED.value, updated_at = NOW()""",
+                        [Json(new_cursor)],
+                    )
+        return inserted
 
     def insert_pihole_batch(self, logs: list[dict], new_cursor: int):
         """Atomic insert of Pi-hole logs + cursor update. No row-by-row fallback.

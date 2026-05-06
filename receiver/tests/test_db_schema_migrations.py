@@ -81,7 +81,8 @@ def _validation_cursor():
 
     Order: logs table, idx_logs_timestamp, threat_backfill_queue table,
     ip_threats.last_seen_at column, ip_threats.last_seen_at column_default,
-    idx_logs_fw_block_null_threat_src index, rdns_cache table.
+    idx_logs_fw_block_null_threat_src index, rdns_cache table,
+    adguard_logs table, idx_adguard_timestamp index.
     """
     return FakeCursor(fetches=[
         (1,),
@@ -90,7 +91,9 @@ def _validation_cursor():
         (1,),
         ("now()",),
         (1,),
-        (1,),
+        (1,),   # rdns_cache table
+        (1,),   # adguard_logs table
+        (1,),   # idx_adguard_timestamp index
     ])
 
 

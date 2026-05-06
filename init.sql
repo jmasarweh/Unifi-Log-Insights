@@ -56,6 +56,15 @@ CREATE INDEX IF NOT EXISTS idx_logs_service_name ON logs (service_name) WHERE se
 CREATE INDEX IF NOT EXISTS idx_logs_type_time    ON logs (log_type, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_action_time  ON logs (rule_action, timestamp DESC);
 
+-- Partial index for non-DNS retention cleanup batches.
+-- run_retention_cleanup() deletes WHERE log_type != 'dns' AND timestamp < cutoff.
+-- Without this index the non-DNS pass cannot use idx_logs_type_time (equality-only
+-- on log_type) and falls back to a sequential scan on 165M rows.
+-- With this index each LIMIT-N batch resolves as a constant O(N) range scan.
+CREATE INDEX IF NOT EXISTS idx_logs_nondns_timestamp
+    ON logs (timestamp DESC)
+    WHERE log_type != 'dns';
+
 -- Composite index for flow aggregation (Sankey + IP Pairs)
 CREATE INDEX IF NOT EXISTS idx_logs_flow_agg
     ON logs (timestamp DESC, src_ip, dst_ip, dst_port, protocol)
@@ -101,13 +110,6 @@ CREATE INDEX IF NOT EXISTS idx_logs_spgist_dst_ip_firewall
 -- Enables O(N) batch scans for DELETE … WHERE log_type = X AND id <= Y LIMIT N
 -- instead of O(total-rows-of-type) heap-sorts on large tables.
 CREATE INDEX IF NOT EXISTS idx_logs_type_id ON logs (log_type, id);
-
--- Partial index for non-DNS retention cleanup batches.
--- The non-DNS pass deletes WHERE log_type != 'dns' AND timestamp < cutoff.
--- Without this index the pass falls back to a sequential scan on large tables.
-CREATE INDEX IF NOT EXISTS idx_logs_nondns_timestamp
-    ON logs (timestamp DESC)
-    WHERE log_type != 'dns';
 
 -- AbuseIPDB threat score cache (persistent across restarts)
 CREATE TABLE IF NOT EXISTS ip_threats (

@@ -58,7 +58,8 @@ def update_pihole_settings(body: dict):
         set_config(enricher_db, 'pihole_last_cursor', 0)
 
     pihole_poller.reload_config()
-    signal_receiver()
+    if not signal_receiver():
+        logger.warning("Config saved but receiver reload signal failed; restart may be required")
 
     return {"success": True}
 

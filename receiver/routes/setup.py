@@ -285,7 +285,8 @@ def complete_setup(body: dict):
     invalidate_fw_cache()
 
     # Signal receiver process to reload config
-    signal_receiver()
+    if not signal_receiver():
+        logger.warning("Config saved but receiver reload signal failed; restart may be required")
 
     return {"success": True}
 
@@ -613,7 +614,8 @@ def import_config(body: dict):
             put_conn(conn)
 
     # Signal receiver to reload config
-    signal_receiver()
+    if not signal_receiver():
+        logger.warning("Config saved but receiver reload signal failed; restart may be required")
 
     # Reload UniFi API if any unifi settings changed
     has_unifi_key = any(k.startswith('unifi_') for k in imported_keys)
@@ -665,7 +667,8 @@ def save_vpn_networks(body: dict):
     set_config(enricher_db, 'interface_labels', labels)
     _prune_dismissed("vpn_toast_dismissed", set(vpn.keys()))
     invalidate_fw_cache()
-    signal_receiver()
+    if not signal_receiver():
+        logger.warning("Config saved but receiver reload signal failed; restart may be required")
     return {"success": True}
 
 
@@ -674,8 +677,12 @@ def save_vpn_networks(body: dict):
 @router.get("/api/config/retention")
 def get_retention():
     """Return current retention configuration with effective values and source."""
-    days = Database.resolve_retention_days(enricher_db)
-    time_cfg = Database.resolve_retention_time(enricher_db)
+    try:
+        days = Database.resolve_retention_days(enricher_db)
+        time_cfg = Database.resolve_retention_time(enricher_db)
+    except Exception as e:
+        logger.exception("Failed to load retention config")
+        raise HTTPException(status_code=500, detail="Failed to load retention config") from e
 
     return {
         'retention_days': days.general,
@@ -740,8 +747,8 @@ def update_retention(body: dict):
     # re-resolved from the DB on every scheduled run, so they don't need a
     # reload. Scheduler rebuild is an OS-level signal + SIGUSR2 handler chain,
     # so avoiding no-op reloads keeps the system quiet.
-    if time_changed:
-        signal_receiver()
+    if time_changed and not signal_receiver():
+        logger.warning("Retention time saved but receiver reload signal failed; restart may be required")
 
     return {"success": True}
 
@@ -1044,8 +1051,8 @@ def update_ui_settings(body: dict):
                 actually_changed_processing = True
         set_config(enricher_db, key, val)
     # Signal receiver to reload only when processing settings actually changed
-    if actually_changed_processing:
-        signal_receiver()
+    if actually_changed_processing and not signal_receiver():
+        logger.warning("Config saved but receiver reload signal failed; restart may be required")
     return {"success": True}
 
 
@@ -1105,5 +1112,6 @@ def update_rdns_settings(body: dict):
     current = _parse_bool_setting(raw_current, default=None) if raw_current is not None else None
     if parsed != current:
         set_config(enricher_db, 'rdns_enabled', parsed)
-        signal_receiver()  # SIGUSR2 → enricher reloads via _resolve_rdns_enabled
+        if not signal_receiver():  # SIGUSR2 → enricher reloads via _resolve_rdns_enabled
+            logger.warning("Config saved but receiver reload signal failed; restart may be required")
     return {"success": True}

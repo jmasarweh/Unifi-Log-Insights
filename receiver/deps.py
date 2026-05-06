@@ -94,7 +94,7 @@ def put_conn(conn):
 
 # ── AbuseIPDB Enricher (for manual enrich endpoint) ─────────────────────────
 
-enricher_db = Database(conn_params, min_conn=1, max_conn=3)
+enricher_db = Database(conn_params, min_conn=2, max_conn=8)
 enricher_db.connect()
 abuseipdb = AbuseIPDBEnricher(db=enricher_db)
 
@@ -149,13 +149,26 @@ def get_config_source(db, key: str, env_map: dict, db_prefix: str) -> str:
     return 'default'
 
 
-def signal_receiver():
-    """Signal the receiver process to reload config."""
+def signal_receiver() -> bool:
+    """Signal the receiver process to reload config.
+
+    Returns True when SIGUSR2 was delivered, False otherwise.
+    """
     try:
-        subprocess.run(['pkill', '-SIGUSR2', '-f', '/app/main.py'],
-                      check=False, timeout=2)
+        result = subprocess.run(['pkill', '-SIGUSR2', '-f', '/app/main.py'],
+                                check=False, timeout=2)
+        signaled = result.returncode == 0
         with open('/tmp/config_update_requested', 'w') as f:
             f.write(str(time.time()))
-        logger.info("Signaled receiver process to reload config")
+        if signaled:
+            logger.info("Signaled receiver process to reload config")
+        else:
+            logger.warning(
+                "signal_receiver: pkill found no matching process (exit %d) "
+                "-- config saved but reload requires a service restart",
+                result.returncode,
+            )
+        return signaled
     except Exception as e:
         logger.warning("Failed to signal receiver: %s", e)
+        return False

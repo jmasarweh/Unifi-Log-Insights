@@ -54,6 +54,7 @@ services:
       # Core settings
       TZ: ${TZ:-UTC}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WAN_REFRESH_INTERVAL_MINUTES: ${WAN_REFRESH_INTERVAL_MINUTES:-360}
 
       # Optional: threat intelligence
       ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}

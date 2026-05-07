@@ -52,6 +52,8 @@ services:
 
       TZ: "Europe/London"
       LOG_LEVEL: "INFO"
+      # Refresh cadence for log-based WAN/gateway identity detection (minutes)
+      WAN_REFRESH_INTERVAL_MINUTES: "${WAN_REFRESH_INTERVAL_MINUTES:-360}"
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 15s

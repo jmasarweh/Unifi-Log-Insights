@@ -437,6 +437,15 @@ class AbuseIPDBEnricher:
             # Gate on real remaining with safety buffer
             return self._rate_limit_remaining > self.SAFETY_BUFFER
 
+    def is_rate_limit_known(self) -> bool:
+        """Check if rate limit state has been bootstrapped (known from API).
+        
+        Returns True if _rate_limit_remaining is known (not None).
+        Used to determine if a bootstrap call is needed before making real lookups.
+        """
+        with self._lock:
+            return self._rate_limit_remaining is not None
+
     @property
     def remaining_budget(self) -> int:
         """How many API calls we can still make this period.

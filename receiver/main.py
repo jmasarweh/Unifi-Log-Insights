@@ -18,6 +18,7 @@ import threading
 from collections import deque
 
 import schedule
+import psycopg2
 
 from parsers import parse_log
 import parsers
@@ -51,7 +52,7 @@ def _env_int(name: str, default: int) -> int:
     try:
         value = int(raw)
         return value if value > 0 else default
-    except Exception:
+    except ValueError:
         return default
 
 
@@ -274,13 +275,30 @@ def _log_periodic_stats(db: Database, enricher: Enricher):
     """Collect and log stats only when DEBUG logging is enabled."""
     if not logger.isEnabledFor(logging.DEBUG):
         return
+    db_stats = None
+    enrich_stats = None
+
     try:
         db_stats = db.get_stats()
-        enrich_stats = enricher.get_stats()
-        logger.debug("DB stats — total: %s, last hour: %s", db_stats['total'], db_stats['last_hour'])
-        logger.debug("Enrichment stats — %s", enrich_stats)
+    except psycopg2.Error as e:
+        logger.error("Failed to get DB stats: %s", e)
     except Exception as e:
-        logger.error("Failed to get stats: %s", e)
+        # Last-resort safeguard: stats must never break scheduler loop.
+        logger.error("Failed to get DB stats (unexpected): %s", e)
+
+    try:
+        enrich_stats = enricher.get_stats()
+    except Exception as e:
+        # Last-resort safeguard: stats must never break scheduler loop.
+        logger.error("Failed to get enrichment stats (unexpected): %s", e)
+
+    try:
+        if db_stats is not None:
+            logger.debug("DB stats — total: %s, last hour: %s", db_stats['total'], db_stats['last_hour'])
+        if enrich_stats is not None:
+            logger.debug("Enrichment stats — %s", enrich_stats)
+    except (KeyError, TypeError) as e:
+        logger.error("Failed to log stats payload: %s", e)
 
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────

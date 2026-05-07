@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import sys
 from unittest.mock import MagicMock
 
-from backfill import BackfillTask
+from backfill import BackfillTask, QUEUE_BATCH_SIZE
 
 
 def _make_task(*, budget: int, enabled: bool, rate_limit_remaining):
@@ -50,4 +50,20 @@ def test_process_queue_pulls_when_bootstrap_allowed(monkeypatch):
 
     task._process_queue()
 
-    db.pull_due_queue_batch.assert_called_once_with(limit=50)
+    db.pull_due_queue_batch.assert_called_once_with(limit=QUEUE_BATCH_SIZE)
+
+
+def test_process_queue_pulls_when_budget_available(monkeypatch):
+    """Verify that queue is pulled when budget is positive (normal path)."""
+    task, db = _make_task(budget=5, enabled=True, rate_limit_remaining=50)
+    db.pull_due_queue_batch.return_value = []
+
+    monkeypatch.setitem(
+        sys.modules,
+        'db',
+        SimpleNamespace(get_wan_ips_from_config=lambda _db: []),
+    )
+
+    task._process_queue()
+
+    db.pull_due_queue_batch.assert_called_once_with(limit=QUEUE_BATCH_SIZE)

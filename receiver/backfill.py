@@ -92,7 +92,7 @@ class BackfillTask:
         allow_bootstrap = (
             budget == 0
             and self.abuseipdb.enabled
-            and self.abuseipdb._rate_limit_remaining is None
+            and not self.abuseipdb.is_rate_limit_known()
         )
 
         if budget == 0 and not allow_bootstrap:

@@ -85,10 +85,6 @@ class BackfillTask:
         """Pull due IPs from the backfill queue, look them up, patch logs."""
         from db import get_wan_ips_from_config
 
-        due_ips = self.db.pull_due_queue_batch(limit=QUEUE_BATCH_SIZE)
-        if not due_ips:
-            return
-
         budget = self.abuseipdb.remaining_budget
         # Bootstrap rule: when rate-limit state is unknown (startup),
         # remaining_budget returns 0 but _check_rate_limit allows one call.
@@ -100,7 +96,11 @@ class BackfillTask:
         )
 
         if budget == 0 and not allow_bootstrap:
-            logger.debug("Queue: %d due IPs but no API budget", len(due_ips))
+            logger.debug("Queue: no API budget")
+            return
+
+        due_ips = self.db.pull_due_queue_batch(limit=QUEUE_BATCH_SIZE)
+        if not due_ips:
             return
 
         wan_ips = get_wan_ips_from_config(self.db)

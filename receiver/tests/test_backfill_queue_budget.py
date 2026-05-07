@@ -15,6 +15,7 @@ def _make_task(*, budget: int, enabled: bool, rate_limit_remaining):
     abuseipdb.remaining_budget = budget
     abuseipdb.enabled = enabled
     abuseipdb._rate_limit_remaining = rate_limit_remaining
+    abuseipdb.is_rate_limit_known.return_value = (rate_limit_remaining is not None)
 
     enricher.abuseipdb = abuseipdb
     enricher.geoip = MagicMock()

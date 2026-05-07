@@ -1,0 +1,118 @@
+name: Personal CI
+
+on:
+  push:
+    branches: [main, fix/**, feat/**]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.doc/**'
+      - 'assets/**'
+      - 'images/**'
+      - '*.png'
+      - '*.jpg'
+      - '*.gif'
+      - '*.svg'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.doc/**'
+      - 'assets/**'
+      - 'images/**'
+      - '*.png'
+      - '*.jpg'
+      - '*.gif'
+      - '*.svg'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: [self-hosted, linux]
+    defaults:
+      run:
+        working-directory: receiver
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r requirements-test.txt
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  frontend:
+    runs-on: [self-hosted, linux]
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npx vitest run
+
+  snyk:
+    runs-on: [self-hosted, linux]
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build a Docker image
+        run: docker build -t unifi-log-insight:latest .
+
+      - name: Run Snyk to check Docker image for vulnerabilities
+        continue-on-error: true
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: unifi-log-insight:latest
+          args: --file=Dockerfile --sarif-file-output=snyk.sarif
+
+      - name: Fix Snyk SARIF null severity values
+        run: |
+          if [ -f snyk.sarif ]; then
+            sed -i 's/"security-severity": "null"/"security-severity": "0"/g' snyk.sarif
+            python3 -c "
+          import json, sys
+          with open('snyk.sarif', 'r') as f:
+              data = json.load(f)
+          for run in data.get('runs', []):
+              for rule in run.get('tool', {}).get('driver', {}).get('rules', []):
+                  props = rule.get('properties', {})
+                  if 'security-severity' in props and props['security-severity'] is None:
+                      props['security-severity'] = '0'
+          with open('snyk.sarif', 'w') as f:
+              json.dump(data, f)
+          "
+          fi
+
+      - name: Upload result to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: snyk.sarif

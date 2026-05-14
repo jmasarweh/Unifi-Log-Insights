@@ -8,10 +8,11 @@ Pre-seeds ip_threats cache so blocked IPs get instant scores without API calls.
 
 import ipaddress
 import os
+import time
 import logging
 import requests
 
-from db import get_config, get_wan_ips_from_config
+from db import get_config, set_config, get_wan_ips_from_config
 
 logger = logging.getLogger('blacklist')
 
@@ -93,6 +94,14 @@ class BlacklistFetcher:
             # Bulk upsert into ip_threats
             count = self.db.bulk_upsert_threats(entries)
             logger.info("Blacklist: fetched %d IPs, upserted %d into ip_threats", len(entries), count)
+            if count:
+                # Record the successful pull so startup gating in main.py can
+                # skip redundant /blacklist calls within ABUSEIPDB_BLACKLIST_MIN_INTERVAL_HOURS.
+                # Free-tier quota is 5/day — restarts must not burn it.
+                try:
+                    set_config(self.db, 'last_blacklist_pull_at', int(time.time()))
+                except Exception:
+                    logger.exception("Failed to persist last_blacklist_pull_at")
             return count
 
         except requests.Timeout:

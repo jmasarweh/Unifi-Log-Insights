@@ -106,6 +106,29 @@ class TestParseSyslogTimestamp:
         ts = parse_syslog_timestamp('Feb', '8', '12:00:00')
         assert ts.tzinfo == timezone.utc
 
+    def test_out_of_range_day_returns_none(self, monkeypatch):
+        # Attacker-crafted packet: "Feb 99 12:00:00 host body" passes the
+        # SYSLOG_HEADER regex but datetime() raises ValueError on day=99.
+        monkeypatch.setenv('TZ', 'UTC')
+        assert parse_syslog_timestamp('Feb', '99', '12:00:00') is None
+
+    def test_out_of_range_hour_returns_none(self, monkeypatch):
+        monkeypatch.setenv('TZ', 'UTC')
+        assert parse_syslog_timestamp('Feb', '1', '99:00:00') is None
+
+    def test_out_of_range_minute_returns_none(self, monkeypatch):
+        monkeypatch.setenv('TZ', 'UTC')
+        assert parse_syslog_timestamp('Feb', '1', '12:99:00') is None
+
+    def test_out_of_range_second_returns_none(self, monkeypatch):
+        monkeypatch.setenv('TZ', 'UTC')
+        assert parse_syslog_timestamp('Feb', '1', '12:00:99') is None
+
+    def test_huge_int_returns_none(self, monkeypatch):
+        # OverflowError path: int() succeeds but datetime() can't represent
+        monkeypatch.setenv('TZ', 'UTC')
+        assert parse_syslog_timestamp('Feb', '1', '99999999999:00:00') is None
+
 
 # ── detect_log_type ──────────────────────────────────────────────────────────
 

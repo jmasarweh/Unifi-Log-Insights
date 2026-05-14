@@ -333,6 +333,44 @@ def run_scheduler(db: Database, enricher: Enricher, blacklist_fetcher: Blacklist
             except Exception as e:
                 logger.error("Blacklist pull failed: %s", e)
 
+    def pull_blacklist_startup():
+        """Gated startup variant of pull_blacklist.
+
+        Reserves the free-tier /blacklist quota (5/day) by skipping the pull
+        when either of two conditions hold:
+
+        - ABUSEIPDB_BLACKLIST_SKIP_STARTUP is truthy (kill-switch).
+        - last_blacklist_pull_at in system_config is within
+          ABUSEIPDB_BLACKLIST_MIN_INTERVAL_HOURS (default 6h).
+
+        The scheduled 04:00 daily pull is unaffected — it calls the bare
+        pull_blacklist().
+        """
+        if not blacklist_fetcher:
+            return
+        skip_env = os.environ.get('ABUSEIPDB_BLACKLIST_SKIP_STARTUP', '').strip().lower()
+        if skip_env in ('1', 'true', 'yes', 'y'):
+            logger.info("Blacklist startup pull skipped (ABUSEIPDB_BLACKLIST_SKIP_STARTUP set)")
+            return
+        try:
+            interval_hours = float(os.environ.get('ABUSEIPDB_BLACKLIST_MIN_INTERVAL_HOURS', '6'))
+        except (TypeError, ValueError):
+            interval_hours = 6.0
+        last_pull = get_config(db, 'last_blacklist_pull_at', None)
+        if last_pull is not None:
+            try:
+                last_pull_f = float(last_pull)
+                age_seconds = time.time() - last_pull_f
+                if age_seconds < interval_hours * 3600:
+                    logger.info(
+                        "Blacklist startup pull skipped (last pull %.1fh ago, threshold %.1fh)",
+                        age_seconds / 3600.0, interval_hours,
+                    )
+                    return
+            except (TypeError, ValueError):
+                pass
+        pull_blacklist()
+
     def refresh_wan_ip():
         _refresh_network_identity_from_logs(db)
 
@@ -346,9 +384,10 @@ def run_scheduler(db: Database, enricher: Enricher, blacklist_fetcher: Blacklist
     logger.info("Scheduler started — stats every %dm, blacklist daily at 04:00, auth cleanup daily at 03:30",
                  STATS_INTERVAL_MINUTES)
 
-    # Initial blacklist pull after 30s startup delay
+    # Initial blacklist pull after 30s startup delay — gated to avoid burning
+    # the /blacklist quota (5/day on the free tier) on every container restart.
     time.sleep(30)
-    pull_blacklist()
+    pull_blacklist_startup()
 
     while True:
         _scheduler_tick(db)

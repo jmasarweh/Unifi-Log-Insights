@@ -164,10 +164,19 @@ class BackfillTask:
         from db import get_wan_ips_from_config
 
         budget = self.abuseipdb.remaining_budget
-        if budget == 0:
+        # Bootstrap rule: mirror _process_queue. When rate-limit state is
+        # unknown (startup, _rate_limit_remaining is None), remaining_budget
+        # returns 0 but _check_rate_limit will allow one call. Without this,
+        # stale re-enrichment never bootstraps on a fresh install.
+        allow_bootstrap = (
+            budget == 0
+            and self.abuseipdb.enabled
+            and self.abuseipdb._rate_limit_remaining is None
+        )
+        if budget == 0 and not allow_bootstrap:
             return 0
 
-        batch_size = min(STALE_REENRICH_BATCH, budget)
+        batch_size = min(STALE_REENRICH_BATCH, max(budget, 1))
         stale_ips = self.db.get_stale_threat_candidates(limit=batch_size)
         if not stale_ips:
             return 0

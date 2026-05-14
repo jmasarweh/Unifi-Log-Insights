@@ -58,27 +58,40 @@ def enrich_ip(ip: str):
     # Budget check: use centralized AbuseIPDB stats from enricher DB
     budget_stats = get_abuseipdb_stats(enricher_db)
     if budget_stats:
-        # Block if actively paused (429 back-off)
-        paused_until = budget_stats.get('paused_until')
-        if paused_until:
+        # Bootstrap rule: when no /check call has ever populated rate-limit
+        # state (limit/remaining both None) and no active 429 pause, allow one
+        # call through so subsequent callers see populated state.
+        paused_active = False
+        paused_until_val = budget_stats.get('paused_until')
+        if paused_until_val:
             try:
-                if time.time() < float(paused_until):
-                    raise HTTPException(status_code=429, detail="AbuseIPDB paused (rate limited) — try later")
+                paused_active = time.time() < float(paused_until_val)
             except (ValueError, TypeError):
-                pass
-        remaining = budget_stats.get('remaining', 0) or 0
-        if remaining <= 0:
-            # Check if quota has renewed since stats were written
-            reset_at = budget_stats.get('reset_at')
-            quota_renewed = False
-            if reset_at is not None:
-                try:
-                    quota_renewed = time.time() > float(reset_at)
-                except (ValueError, TypeError):
-                    pass
-            if not quota_renewed:
-                raise HTTPException(status_code=429, detail="No API budget remaining — resets daily")
-            logger.info("Manual enrich: quota reset detected (reset_at %s passed), allowing call", reset_at)
+                paused_active = False
+        is_bootstrap = (
+            budget_stats.get('limit') is None
+            and budget_stats.get('remaining') is None
+            and not paused_active
+        )
+        if is_bootstrap:
+            logger.info("Manual enrich: bootstrap call (no prior /check rate-limit state)")
+        else:
+            # Block if actively paused (429 back-off)
+            if paused_active:
+                raise HTTPException(status_code=429, detail="AbuseIPDB paused (rate limited) — try later")
+            remaining = budget_stats.get('remaining', 0) or 0
+            if remaining <= 0:
+                # Check if quota has renewed since stats were written
+                reset_at = budget_stats.get('reset_at')
+                quota_renewed = False
+                if reset_at is not None:
+                    try:
+                        quota_renewed = time.time() > float(reset_at)
+                    except (ValueError, TypeError):
+                        pass
+                if not quota_renewed:
+                    raise HTTPException(status_code=429, detail="No API budget remaining — resets daily")
+                logger.info("Manual enrich: quota reset detected (reset_at %s passed), allowing call", reset_at)
 
     # Clear from memory cache
     abuseipdb.cache.delete(ip)

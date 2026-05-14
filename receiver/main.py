@@ -334,6 +334,18 @@ def run_scheduler(db: Database, enricher: Enricher, blacklist_fetcher: Blacklist
                 logger.error("Blacklist pull failed: %s", e)
 
     def pull_blacklist_startup():
+        """Gated startup variant of pull_blacklist.
+
+        Reserves the free-tier /blacklist quota (5/day) by skipping the pull
+        when either of two conditions hold:
+
+        - ABUSEIPDB_BLACKLIST_SKIP_STARTUP is truthy (kill-switch).
+        - last_blacklist_pull_at in system_config is within
+          ABUSEIPDB_BLACKLIST_MIN_INTERVAL_HOURS (default 6h).
+
+        The scheduled 04:00 daily pull is unaffected — it calls the bare
+        pull_blacklist().
+        """
         if not blacklist_fetcher:
             return
         skip_env = os.environ.get('ABUSEIPDB_BLACKLIST_SKIP_STARTUP', '').strip().lower()

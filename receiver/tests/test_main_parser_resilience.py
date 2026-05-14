@@ -45,6 +45,15 @@ def receiver(monkeypatch):
 
 
 class TestHandleMessageResilience:
+    """Regression coverage for the C4 / VULN-001 one-packet remote DoS.
+
+    Each test forces an exception in a different layer of the parse pipeline
+    (real parser timestamp ValueError, mocked parse_log, mocked enricher.enrich)
+    and asserts the receiver swallows the exception, increments the
+    parse_exceptions counter, rate-limits its WARNING log, and keeps processing
+    subsequent packets.
+    """
+
     def test_malformed_timestamp_does_not_raise(self, receiver):
         # "Feb 99 99:99:99 host body" — passes the SYSLOG_HEADER regex but
         # the components are out of range. Before the fix, datetime() raised

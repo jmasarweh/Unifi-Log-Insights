@@ -49,7 +49,7 @@
 | **UniFi Integration** | Network discovery, device name resolution, and firewall syslog management via **UniFi OS** (API key) or **self-hosted controllers** (username/password) |
 | **Pi-hole Integration** | DNS query logging via Pi-hole v6+ API |
 | **AdGuard Home** | DNS query logging support (coming soon) |
-| **Firewall Syslog Manager** | Zone matrix with bulk toggle — enable syslog on firewall rules without leaving the app (UniFi OS) |
+| **Firewall Syslog Manager** | Zone matrix with bulk toggle — enable syslog on firewall rules without leaving the app, including rules created in the UniFi Network UI (UniFi OS) |
 | **AI Agent Integration** *(MCP)* | Connect Claude Desktop, Claude Code, Gemini CLI (or any http mcp client) via the [Model Context Protocol (MCP)](https://insightsplus.dev/docs) to query your network data & setup through natural conversation |
 | **Device Names** | Friendly names from UniFi clients/devices with historical backfill |
 | **Theming & Preferences** | Dark/light theme, country display format, IP subline (show ASN beneath IPs) |

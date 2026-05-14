@@ -83,6 +83,7 @@ class SyslogReceiver:
             'inserted': 0,
             'flush_errors': 0,
             'dropped': 0,
+            'parse_exceptions': 0,
         }
         self._load_disabled_types()
 
@@ -153,27 +154,44 @@ class SyslogReceiver:
         if not raw_log:
             return
 
-        parsed = parse_log(raw_log)
-        if parsed is None:
-            self.stats['failed'] += 1
-            logger.debug("Unparseable log from %s: %.100s...", addr, raw_log)
-            return
+        try:
+            parsed = parse_log(raw_log)
+            if parsed is None:
+                self.stats['failed'] += 1
+                logger.debug("Unparseable log from %s: %.100s...", addr, raw_log)
+                return
 
-        self.stats['parsed'] += 1
+            self.stats['parsed'] += 1
 
-        # Filter disabled log types before enrichment
-        log_type = parsed.get('log_type')
-        if log_type in self._disabled_log_types:
-            self.stats['filtered'] += 1
-            return
+            # Filter disabled log types before enrichment
+            log_type = parsed.get('log_type')
+            if log_type in self._disabled_log_types:
+                self.stats['filtered'] += 1
+                return
 
-        # Enrich with GeoIP, ASN, AbuseIPDB, rDNS
-        parsed = self.enricher.enrich(parsed)
+            # Enrich with GeoIP, ASN, AbuseIPDB, rDNS
+            parsed = self.enricher.enrich(parsed)
 
-        with self.batch_lock:
-            self.batch.append(parsed)
-            if len(self.batch) >= BATCH_SIZE:
-                self._flush_batch()
+            with self.batch_lock:
+                self.batch.append(parsed)
+                if len(self.batch) >= BATCH_SIZE:
+                    self._flush_batch()
+        except Exception:
+            # Never let a single malformed/edge-case packet kill the receiver
+            # thread. UDP/514 is reachable by any LAN host (and an attacker
+            # who can spoof source IPs over UDP); an unhandled exception here
+            # would crash the receiver and force a supervisord restart,
+            # losing in-flight packets — a one-packet remote DoS.
+            self.stats['parse_exceptions'] += 1
+            # Rate-limit the log line so an attacker can't fill disk with our
+            # own warnings: emit once per 100 exceptions, with the first.
+            if self.stats['parse_exceptions'] % 100 == 1:
+                logger.warning(
+                    "Unhandled exception processing packet from %s "
+                    "(total parse_exceptions=%d). Sample raw_log: %.200r",
+                    addr, self.stats['parse_exceptions'], raw_log,
+                    exc_info=True,
+                )
 
     def _maybe_flush_batch(self):
         """Flush batch if timeout elapsed."""

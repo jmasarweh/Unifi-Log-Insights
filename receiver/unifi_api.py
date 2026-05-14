@@ -827,6 +827,49 @@ class UniFiAPI:
         data = self._get_integration_site('/firewall/zones')
         return data.get('data', [])
 
+    def _firewall_policies_v2_url(self) -> str:
+        """Return the v2 firewall policy collection URL for this controller.
+
+        Firewall policies are the only UniFi resource currently read from the
+        internal v2 API. Keeping URL construction in one place prevents the
+        single-policy and bulk paths from drifting if UniFi requires a different
+        site reference in the future.
+        """
+        if self._controller_type == 'self_hosted':
+            raise NotImplementedError("Firewall policy v2 API not available on self-hosted controllers")
+        site = self.site or 'default'
+        return f"{self.host}/proxy/network/v2/api/site/{site}/firewall-policies"
+
+    @staticmethod
+    def _unwrap_v2_list(body) -> list:
+        """Return a v2 list response from either bare-list or ``data`` envelope.
+
+        The observed v2 firewall-policies endpoint returns a bare JSON list, but
+        some UniFi endpoints use a ``{"data": [...]}`` envelope. Supporting both
+        shapes lets the caller stay strict about malformed responses without
+        duplicating the same type checks across read and write paths.
+        """
+        if isinstance(body, dict) and isinstance(body.get('data'), list):
+            return body['data']
+        if isinstance(body, list):
+            return body
+        raise ValueError("Unexpected v2 firewall policy response shape")
+
+    def _get_v2_firewall_policy_records(self) -> list:
+        """Fetch raw v2 firewall policy records without schema translation.
+
+        Public callers use :meth:`get_firewall_policies`, which reshapes records
+        for the frontend. The raw records are needed for writes because UniFi's
+        v2 endpoint rejects partial updates and requires the full policy body.
+        """
+        resp = self._get_session().get(
+            self._firewall_policies_v2_url(),
+            timeout=self.TIMEOUT,
+        )
+        self._check_integration_permissions(resp)
+        resp.raise_for_status()
+        return self._unwrap_v2_list(resp.json())
+
     @staticmethod
     def _v2_policy_to_integration_shape(policy: dict) -> dict:
         """Translate a v2 firewall policy record to the Integration API shape.
@@ -945,22 +988,7 @@ class UniFiAPI:
         ``default``), not the Integration API site UUID discovered elsewhere in
         this client.
         """
-        if self._controller_type == 'self_hosted':
-            raise NotImplementedError("Firewall policy v2 API not available on self-hosted controllers")
-
-        site = self.site or 'default'
-        url = f"{self.host}/proxy/network/v2/api/site/{site}/firewall-policies"
-        resp = self._get_session().get(url, timeout=self.TIMEOUT)
-        self._check_integration_permissions(resp)
-        resp.raise_for_status()
-
-        body = resp.json()
-        if isinstance(body, dict) and isinstance(body.get('data'), list):
-            policies = body['data']
-        else:
-            policies = body
-        if not isinstance(policies, list):
-            raise ValueError("Unexpected v2 firewall policy response shape")
+        policies = self._get_v2_firewall_policy_records()
         return [self._v2_policy_to_integration_shape(policy) for policy in policies]
 
     def get_firewall_data(self) -> dict:
@@ -979,7 +1007,12 @@ class UniFiAPI:
             'loggingDisabled': logging_disabled,
         }
 
-    def patch_firewall_policy(self, policy_id: str, logging_enabled: bool) -> dict:
+    def patch_firewall_policy(
+        self,
+        policy_id: str,
+        logging_enabled: bool,
+        policy_record: dict | None = None,
+    ) -> dict:
         """Update logging on a single firewall policy through the v2 endpoint.
 
         ``policy_id`` is the v2 Mongo ``_id`` exposed as ``id`` by
@@ -994,25 +1027,18 @@ class UniFiAPI:
 
         The returned value is translated back to the Integration API shape for
         consistency with the rest of the app.
+
+        ``policy_record`` is an optional raw v2 record supplied by the bulk
+        update path after it has fetched the listing once. Single-policy callers
+        leave it unset and this method fetches the listing itself.
         """
-        if self._controller_type == 'self_hosted':
-            raise NotImplementedError("Firewall policy v2 API not available on self-hosted controllers")
-
-        site = self.site or 'default'
-        base_url = f"{self.host}/proxy/network/v2/api/site/{site}/firewall-policies"
-        listing = self._get_session().get(base_url, timeout=self.TIMEOUT)
-        self._check_integration_permissions(listing)
-        listing.raise_for_status()
-
-        body = listing.json()
-        if isinstance(body, dict) and isinstance(body.get('data'), list):
-            policies = body['data']
+        base_url = self._firewall_policies_v2_url()
+        if policy_record is None:
+            policies = self._get_v2_firewall_policy_records()
+            record = next((item for item in policies if item.get('_id') == policy_id), None)
         else:
-            policies = body
-        if not isinstance(policies, list):
-            raise ValueError("Unexpected v2 firewall policy response shape")
+            record = policy_record if policy_record.get('_id') == policy_id else None
 
-        record = next((item for item in policies if item.get('_id') == policy_id), None)
         if record is None:
             raise ValueError(f"policy not found: {policy_id}")
         record = dict(record)
@@ -1035,13 +1061,25 @@ class UniFiAPI:
             raise ValueError("Unexpected v2 firewall policy update response shape")
         return self._v2_policy_to_integration_shape(updated)
 
-    def _patch_one_policy(self, policy_id: str, logging_val: bool) -> dict:
+    def _patch_one_policy(
+        self,
+        policy_id: str,
+        logging_val: bool,
+        policy_record: dict | None = None,
+    ) -> dict:
         """Patch a single policy with retry. Returns result dict (thread-safe)."""
         max_retries = 3
         retried = 0
         for attempt in range(max_retries):
             try:
-                self.patch_firewall_policy(policy_id, logging_val)
+                if policy_record is None:
+                    self.patch_firewall_policy(policy_id, logging_val)
+                else:
+                    self.patch_firewall_policy(
+                        policy_id,
+                        logging_val,
+                        policy_record=policy_record,
+                    )
                 return {'status': 'success', 'retried': retried}
             except requests.HTTPError as e:
                 status = e.response.status_code if e.response is not None else 0
@@ -1091,11 +1129,25 @@ class UniFiAPI:
         # Ensure session is initialized before spawning threads (avoids lazy-init race)
         self._get_session()
 
+        policy_map = None
+        try:
+            policy_map = {
+                policy.get('_id'): policy
+                for policy in self._get_v2_firewall_policy_records()
+            }
+        except Exception as e:
+            logger.warning("Bulk patch: v2 policy prefetch failed, falling back to per-policy reads: %s", e)
+
         # Patch concurrently (4 workers keeps controller happy)
         successful_ids = set()
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = {
-                pool.submit(self._patch_one_policy, item['id'], item['loggingEnabled']): item
+                pool.submit(
+                    self._patch_one_policy,
+                    item['id'],
+                    item['loggingEnabled'],
+                    policy_map.get(item['id']) if policy_map is not None else None,
+                ): item
                 for item in work_items
             }
             for future in as_completed(futures):

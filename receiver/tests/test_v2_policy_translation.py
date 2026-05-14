@@ -242,6 +242,50 @@ class TestV2FirewallPolicyEndpoints:
 
         api._session.put.assert_not_called()
 
+    def test_bulk_patch_logging_prefetches_v2_listing_once_for_writes(self, api):
+        """Bulk logging should avoid one full v2 listing GET per policy."""
+        policy_1 = _base_v2_policy(
+            _id="65f31c0a1234567890abcde1",
+            name="Policy 1",
+            logging=False,
+        )
+        policy_2 = _base_v2_policy(
+            _id="65f31c0a1234567890abcde2",
+            name="Policy 2",
+            logging=False,
+        )
+        verified_1 = _base_v2_policy(
+            _id=policy_1["_id"],
+            name="Policy 1",
+            logging=True,
+        )
+        verified_2 = _base_v2_policy(
+            _id=policy_2["_id"],
+            name="Policy 2",
+            logging=True,
+        )
+        api._session.get.side_effect = [
+            _response([deepcopy(policy_1), deepcopy(policy_2)]),
+            _response([verified_1, verified_2]),
+            _response([verified_1, verified_2]),
+        ]
+
+        def put_policy(_url, json, timeout):
+            """Mirror the controller by returning the full policy body just PUT."""
+            return _response(dict(json))
+
+        api._session.put.side_effect = put_policy
+
+        result = api.bulk_patch_logging([
+            {"id": policy_1["_id"], "loggingEnabled": True},
+            {"id": policy_2["_id"], "loggingEnabled": True},
+        ])
+
+        assert result["success"] == 2
+        assert result["failed"] == 0
+        assert api._session.get.call_count == 2
+        assert api._session.put.call_count == 2
+
 
 def test_live_controller_v2_firewall_policy_toggle_round_trip():
     """Optional live controller smoke test, skipped unless explicitly enabled.

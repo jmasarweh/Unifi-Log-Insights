@@ -419,7 +419,7 @@ class BackfillTask:
                     self.db.enqueue_threat_backfill(remote_ip, source='cef_backfill')
                     queued_remote_ips.add(remote_ip)
                 except Exception:
-                    logger.debug("CEF backfill failed to enqueue %s", remote_ip, exc_info=True)
+                    logger.warning("CEF backfill failed to enqueue %s", remote_ip, exc_info=True)
             updates.append((row_id, parsed))
 
         if updates:

@@ -82,6 +82,34 @@ DHCP_DISC    = re.compile(rf'DHCPDISCOVER\((\S+)\)\s+(?:([0-9a-fA-F:.]+)\s+)?({M
 DHCP_OFFER   = re.compile(rf'DHCPOFFER\((\S+)\)\s+([0-9a-fA-F:.]+)\s+({MAC_PATTERN})')
 DHCP_REQ     = re.compile(rf'DHCPREQUEST\((\S+)\)\s+([0-9a-fA-F:.]+)\s+({MAC_PATTERN})')
 
+
+def _valid_ip_or_none(value) -> str | None:
+    """Return an IP string only when PostgreSQL ``INET`` can accept it.
+
+    Live ingestion already validates parsed ``src_ip`` / ``dst_ip`` just
+    before insert, but some backfills call narrow parsers directly and then
+    update ``INET`` columns. Keeping this small helper near the shared regexes
+    lets both paths apply the same DB-boundary guard.
+    """
+    if not value:
+        return None
+    try:
+        ipaddress.ip_address(value)
+    except (ValueError, TypeError):
+        return None
+    return value
+
+
+def _valid_mac_or_none(value) -> str | None:
+    """Return a MAC string only when PostgreSQL ``MACADDR`` can accept it.
+
+    Invalid MACs are left unset rather than allowed to fail an entire batch
+    insert or historical backfill update.
+    """
+    if isinstance(value, str) and MAC_RE.fullmatch(value):
+        return value
+    return None
+
 # ── WiFi (stamgr / hostapd) ───────────────────────────────────────────────────
 WIFI_EVENT  = re.compile(r'(\w+):\s+STA\s+([0-9a-f:]+)')
 WIFI_ASSOC  = re.compile(r'STA\s+([0-9a-f:]+)\s+.*?(associated|disassociated|deauthenticated|authenticated)')
@@ -659,10 +687,10 @@ def parse_cef_threat(body: str) -> dict | None:
     result: dict = {'log_type': 'firewall'}
 
     # ── Network 5-tuple ────────────────────────────────────────────────
-    if ext.get('src'):
-        result['src_ip'] = ext['src']
-    if ext.get('dst'):
-        result['dst_ip'] = ext['dst']
+    for ext_key, result_key in (('src', 'src_ip'), ('dst', 'dst_ip')):
+        ip_value = _valid_ip_or_none(ext.get(ext_key))
+        if ip_value:
+            result[result_key] = ip_value
 
     for ext_key, result_key in (('spt', 'src_port'), ('dpt', 'dst_port')):
         raw = ext.get(ext_key)
@@ -728,8 +756,9 @@ def parse_cef_threat(body: str) -> dict | None:
         result['threat_categories'] = [signature]
 
     # ── Device MAC (the UDM emitting the event) ────────────────────────
-    if ext.get('UNIFIdeviceMac'):
-        result['mac_address'] = ext['UNIFIdeviceMac']
+    mac_address = _valid_mac_or_none(ext.get('UNIFIdeviceMac'))
+    if mac_address:
+        result['mac_address'] = mac_address
 
     return result
 
@@ -841,16 +870,13 @@ def parse_log(raw_log: str) -> dict | None:
     # Validate IP fields — reject invalid inet values before DB insert
     for ip_field in ('src_ip', 'dst_ip'):
         ip_val = parsed.get(ip_field)
-        if ip_val:
-            try:
-                ipaddress.ip_address(ip_val)
-            except ValueError:
-                logger.warning("Invalid %s '%s' in log: %.300s", ip_field, ip_val, original_raw)
-                parsed[ip_field] = None
+        if ip_val and not _valid_ip_or_none(ip_val):
+            logger.warning("Invalid %s '%s' in log: %.300s", ip_field, ip_val, original_raw)
+            parsed[ip_field] = None
 
     # Validate MAC field — reject invalid macaddr values before DB insert
     mac_val = parsed.get('mac_address')
-    if mac_val and not MAC_RE.fullmatch(mac_val):
+    if mac_val and not _valid_mac_or_none(mac_val):
         logger.warning("Invalid mac_address '%s' in log: %.300s", mac_val, original_raw)
         parsed['mac_address'] = None
 

@@ -628,6 +628,31 @@ class TestParseCefThreat:
         assert r.get('src_port') is None
         assert r.get('dst_port') is None
 
+    def test_invalid_ip_fields_are_not_returned(self):
+        """Direct parser callers (notably historical backfill) bypass
+        ``parse_log``'s final DB-boundary validation, so CEF IP fields must
+        be checked before they can reach PostgreSQL ``INET`` columns."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=not-an-ip dst=192.168.200.56'
+        )
+        r = parse_cef_threat(body)
+        assert r is not None
+        assert r.get('src_ip') is None
+        assert r['dst_ip'] == '192.168.200.56'
+
+    def test_invalid_device_mac_is_not_returned(self):
+        """Malformed ``UNIFIdeviceMac`` values are left unset so CEF
+        backfill updates cannot fail the whole batch on PostgreSQL
+        ``MACADDR`` coercion."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 UNIFIdeviceMac=not-a-mac'
+        )
+        r = parse_cef_threat(body)
+        assert r is not None
+        assert r.get('mac_address') is None
+
     def test_direction_unknown_value_left_unset(self):
         """An ``UNIFIdirection`` value outside the known mapping leaves
         ``direction`` unset rather than passing through a garbage value."""

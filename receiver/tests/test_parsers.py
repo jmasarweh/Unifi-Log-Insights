@@ -14,6 +14,7 @@ from parsers import (
     detect_log_type,
     extract_mac,
     match_vpn_ip,
+    parse_cef_threat,
     parse_dhcp,
     parse_dns,
     parse_firewall,
@@ -152,6 +153,42 @@ class TestDetectLogType:
 
     def test_system_earlyoom(self):
         body = 'earlyoom[456]: mem avail 1234 MiB'
+        assert detect_log_type(body) == 'system'
+
+    def test_cef_threat_routes_to_firewall(self):
+        """Network 10.x SIEM Server CEF threat events share the
+        ``firewall`` log_type with netfilter blocks.
+
+        These are firewall block decisions from a user perspective and
+        share UIP's existing FIREWALL/BLOCK filter UI; the
+        ``rule_desc='IDS/IPS'`` column distinguishes them downstream.
+        """
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected and Blocked|7|'
+            'UNIFIcategory=Security src=1.2.3.4'
+        )
+        assert detect_log_type(body) == 'firewall'
+
+    def test_cef_audit_falls_through_to_system(self):
+        """Non-threat CEF (audit / config / admin) is intentionally left to
+        ``parse_system`` until dedicated routing is added in a future change.
+
+        This preserves current behaviour for audit events that previously
+        landed in ``system`` — no silent regression for existing users.
+        """
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|546|Config Modified|5|'
+            'UNIFIcategory=Audit'
+        )
+        assert detect_log_type(body) == 'system'
+
+    def test_cef_non_ubiquiti_falls_through(self):
+        """Foreign-vendor CEF (theoretically possible with rsyslog relays)
+        must not be hijacked by this parser. We only claim Ubiquiti CEF."""
+        body = (
+            'CEF:0|Fortinet|FortiGate|7.4.0|201|Some Event|7|'
+            'src=1.2.3.4'
+        )
         assert detect_log_type(body) == 'system'
 
 
@@ -321,6 +358,346 @@ class TestParseWifi:
         body = 'stahtd[1234]: {not valid json}'
         r = parse_wifi(body)
         assert r['wifi_event'] == 'stahtd'
+
+
+# ── parse_cef_threat ─────────────────────────────────────────────────────────
+
+class TestParseCefThreat:
+    """Tests for the CEF threat-class event parser.
+
+    Sample events here are abridged but field-faithful renderings of real
+    syslog messages received from a UDM Pro running UniFi OS 5.0.16 /
+    Network 10.3.58 with *Settings → CyberSecure → Traffic Logging →
+    Activity Logging → SIEM Server* enabled. Threat events route to
+    ``log_type='firewall'`` so they share UIP's existing FIREWALL /
+    BLOCK filter UI with netfilter blocks; ``rule_desc='IDS/IPS'``
+    distinguishes them downstream.
+    """
+
+    # Real-world incoming-threat event: DShield Block List rule on the
+    # IDS/IPS policy, captured 2026-05-14. Blocked NTP query from a
+    # known-bad NL host to an internal client.
+    INBOUND_THREAT = (
+        'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected and Blocked|7|'
+        'UNIFIcategory=Security UNIFIhost=UDMPRO proto=UDP spt=123 dpt=64280 '
+        'act=blocked app=Other UNIFIrisk=medium UNIFIpolicyName=DShield Block List '
+        'UNIFIpolicyType=IDS/IPS UNIFIdirection=incoming '
+        'deviceOutboundInterface=Default UNIFIdeviceMac=e0:63:da:5b:17:11 '
+        'UNIFIdeviceName=UDMPRO UNIFIdeviceModel=UDM-Pro UNIFIdeviceIp=192.168.200.1 '
+        'UNIFIdeviceVersion=5.0.16 src=176.65.148.67 dst=192.168.200.56 '
+        'UNIFIsrcRegion=NL UNIFIdstZone=Internal UNIFIdstDomain=pool.ntp.org '
+        'UNIFIipsSignature=ET DROP Dshield Block Listed Source group 1 '
+        'UNIFIipsSignatureId=2402000 UNIFIutcTime=2026-05-14T11:51:35.761Z '
+        'msg=A network intrusion attempt from 176.65.148.67 to 192.168.200.56 '
+        'has been detected and blocked.'
+    )
+
+    # Real-world outgoing-block: an internal client trying BitTorrent DHT
+    # ping, blocked by the P2P IDS policy. Same event class (201) but
+    # opposite direction — exercises the inverted geo-country mapping.
+    OUTBOUND_P2P = (
+        'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected and Blocked|9|'
+        'UNIFIcategory=Security proto=UDP spt=27032 dpt=6881 act=blocked '
+        'app=Other UNIFIrisk=high UNIFIpolicyName=P2P UNIFIpolicyType=IDS/IPS '
+        'UNIFIdirection=outgoing src=192.168.200.175 dst=46.107.202.150 '
+        'UNIFIsrcZone=Internal UNIFIdstRegion=HU '
+        'UNIFIipsSignature=ET P2P BitTorrent DHT ping request '
+        'UNIFIipsSignatureId=2008581 UNIFIutcTime=2026-05-14T10:44:34.387Z '
+        'msg=A network intrusion attempt from 192.168.200.175 to 46.107.202.150 '
+        'has been detected and blocked.'
+    )
+
+    # Audit event — same CEF envelope, different event class (5xx range)
+    # and category. Should NOT be claimed by parse_cef; parse_log routes
+    # it to parse_system instead.
+    CONFIG_AUDIT = (
+        'CEF:0|Ubiquiti|UniFi Network|10.3.58|546|Config Modified|5|'
+        'UNIFIcategory=Audit UNIFIhost=UDMPRO src=192.168.200.159 '
+        'UNIFIutcTime=2026-05-13T22:59:56.816Z msg=Config change.'
+    )
+
+    def test_inbound_threat_full_fields(self):
+        """All structured fields populated from a real DShield-block event."""
+        r = parse_cef_threat(self.INBOUND_THREAT)
+        assert r is not None
+        assert r['log_type'] == 'firewall'
+        assert r['src_ip'] == '176.65.148.67'
+        assert r['dst_ip'] == '192.168.200.56'
+        assert r['src_port'] == 123
+        assert r['dst_port'] == 64280
+        assert r['protocol'] == 'udp'
+        assert r['rule_action'] == 'block'
+        assert r['rule_name'] == 'DShield Block List'
+        assert r['rule_desc'] == 'IDS/IPS'
+        assert r['direction'] == 'inbound'
+        assert r['geo_country'] == 'NL'
+        assert r['threat_score'] == 60  # medium → 60 (clears Threats counter)
+        assert r['threat_categories'] == ['ET DROP Dshield Block Listed Source group 1']
+
+    def test_outbound_p2p_inverts_geo_to_dst_region(self):
+        """For outbound flows the external party is the destination, so
+        ``UNIFIdstRegion`` (not ``UNIFIsrcRegion``) is the interesting geo."""
+        r = parse_cef_threat(self.OUTBOUND_P2P)
+        assert r is not None
+        assert r['src_ip'] == '192.168.200.175'
+        assert r['dst_ip'] == '46.107.202.150'
+        assert r['direction'] == 'outbound'
+        assert r['geo_country'] == 'HU'
+        assert r['threat_score'] == 80  # high → 80
+        assert r['rule_name'] == 'P2P'
+
+    def test_audit_event_returns_none(self):
+        """Audit / non-threat CEF events are out of scope for this parser."""
+        assert parse_cef_threat(self.CONFIG_AUDIT) is None
+
+    def test_foreign_vendor_returns_none(self):
+        """CEF from non-Ubiquiti devices (e.g. a relayed Fortinet feed) is
+        not claimed — we have no field map for foreign vendors."""
+        body = (
+            'CEF:0|Fortinet|FortiGate|7.4.0|201|IPS Detection|7|'
+            'src=1.2.3.4 dst=10.0.0.1 act=blocked'
+        )
+        assert parse_cef_threat(body) is None
+
+    def test_malformed_header_returns_none(self):
+        """A truncated or otherwise unparseable CEF header is rejected
+        cleanly — must not raise."""
+        assert parse_cef_threat('CEF:0|Ubiquiti|truncated') is None
+
+    def test_non_cef_body_returns_none(self):
+        """Lines that don't begin with the CEF marker are out of scope."""
+        assert parse_cef_threat('Feb 8 16:43:49 UDR kernel: ordinary syslog line') is None
+
+    def test_protocol_normalised_to_lowercase(self):
+        """Match the firewall parser's convention: protocol is lowercase."""
+        r = parse_cef_threat(self.INBOUND_THREAT)
+        assert r['protocol'] == 'udp'
+
+    def test_act_allowed_maps_to_allow(self):
+        """``act=allowed`` (rare for the threat event class but possible)
+        maps to the existing ``rule_action='allow'`` schema value."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'act=allowed src=1.2.3.4 dst=2.3.4.5'
+        )
+        r = parse_cef_threat(body)
+        assert r['rule_action'] == 'allow'
+
+    def test_unknown_risk_yields_no_score(self):
+        """Risk levels not in the known mapping leave ``threat_score``
+        unset rather than guess a value."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 UNIFIrisk=unknown'
+        )
+        r = parse_cef_threat(body)
+        assert r.get('threat_score') is None
+
+    def test_low_risk_maps_to_score(self):
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 UNIFIrisk=low'
+        )
+        assert parse_cef_threat(body)['threat_score'] == 20
+
+    def test_medium_risk_clears_threats_counter_threshold(self):
+        """The UIP ``Threats`` stats counter is ``threat_score > 50``.
+        Mapping ``medium`` to 60 ensures verified threat-intel hits
+        (e.g. DShield Block List) show up there rather than only as
+        plain "blocked" entries."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 UNIFIrisk=medium'
+        )
+        score = parse_cef_threat(body)['threat_score']
+        assert score == 60
+        assert score > 50  # The Threats-counter SQL filter
+
+    def test_high_risk_maps_to_score(self):
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 UNIFIrisk=high'
+        )
+        assert parse_cef_threat(body)['threat_score'] == 80
+
+    def test_critical_risk_maps_to_score(self):
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 UNIFIrisk=critical'
+        )
+        assert parse_cef_threat(body)['threat_score'] == 95
+
+    def test_service_name_derived_from_dst_port(self):
+        """``service_name`` is set from dst_port + protocol so the
+        Dataflow view labels CEF rows the same way as iptables rows
+        (e.g. UDP/123 → NTP, UDP/53 → DNS)."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 proto=UDP dpt=123'
+        )
+        r = parse_cef_threat(body)
+        assert r['service_name'] is not None
+        # Don't assert exact value — depends on services.py mapping;
+        # just confirm derivation fires when port+proto are present.
+
+    def test_missing_optional_fields_yields_none_values(self):
+        """A minimal threat event with only required header + a couple of
+        fields parses without raising; missing fields read as ``None``."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5'
+        )
+        r = parse_cef_threat(body)
+        assert r is not None
+        assert r['log_type'] == 'firewall'
+        assert r['src_ip'] == '1.2.3.4'
+        assert r['dst_ip'] == '2.3.4.5'
+        assert r.get('src_port') is None
+        assert r.get('dst_port') is None
+        assert r.get('threat_score') is None
+        assert r.get('rule_name') is None
+
+    def test_msg_field_preserves_spaces_and_punctuation(self):
+        """The ``msg=`` extension is special — its value runs to end-of-line
+        and contains arbitrary text. It must not be tokenised into key=value
+        fragments (a naive whitespace split would corrupt the message)."""
+        r = parse_cef_threat(self.INBOUND_THREAT)
+        # parse_cef does not currently surface msg as a top-level field, but
+        # parsing must not crash and surrounding fields must remain correct.
+        assert r['src_ip'] == '176.65.148.67'
+        assert r['threat_categories'] == ['ET DROP Dshield Block Listed Source group 1']
+
+    def test_extension_with_equals_in_value_is_handled(self):
+        """``msg=`` content can include ``=`` (e.g. shell-style ``a=b``)
+        without breaking the parser. Robustness against pathological inputs."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 msg=foo=bar baz=qux'
+        )
+        r = parse_cef_threat(body)
+        assert r is not None
+        assert r['src_ip'] == '1.2.3.4'
+
+    def test_embedded_msg_marker_does_not_truncate_trailing_fields(self):
+        """Regression: an earlier extension value (e.g. a Suricata
+        signature description) may contain the literal substring
+        " msg=". Using ``rfind(' msg=')`` instead of ``find(' msg=')``
+        ensures the actual msg boundary (last in line, per UniFi's
+        emitter) wins and every field between the embedded " msg="
+        and end-of-line still parses.
+
+        Counterexample contributed during code review — preserved here
+        so future refactors of the extension parser cannot regress it.
+
+        Known limitation acknowledged: the inner key=value tokeniser
+        will still truncate ``UNIFIipsSignature`` at the embedded
+        ``msg=`` (it has no way to know it's inside a value, and CEF
+        doesn't escape ``=`` characters). In real UniFi output,
+        Suricata signature descriptions are descriptive English text
+        and don't contain ``key=`` patterns; this counterexample is
+        defensive. The rfind fix recovers the high-value fields
+        (``dst``, ``UNIFIrisk``, the real ``msg``) — full immunity
+        would require a known-key tokeniser, which is over-engineered
+        for the data UniFi actually emits.
+        """
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 UNIFIipsSignature=contains msg= text '
+            'dst=2.3.4.5 UNIFIrisk=high msg=real message at end'
+        )
+        r = parse_cef_threat(body)
+        assert r is not None
+        # Fields after the embedded " msg=" all parse correctly thanks
+        # to rfind picking the trailing msg= boundary.
+        assert r['src_ip'] == '1.2.3.4'
+        assert r['dst_ip'] == '2.3.4.5'         # would be missing without rfind
+        assert r['threat_score'] == 80          # high — would be unset without rfind
+        # Known limitation (see docstring): UNIFIipsSignature is
+        # truncated at the embedded ``msg=`` by the inner tokeniser.
+        assert r['threat_categories'] == ['contains']
+
+    def test_invalid_port_does_not_crash(self):
+        """A non-numeric port value (defensive: shouldn't happen with real
+        UniFi output, but the parser must not raise on malformed input)."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 spt=abc dpt=def'
+        )
+        r = parse_cef_threat(body)
+        assert r is not None
+        assert r.get('src_port') is None
+        assert r.get('dst_port') is None
+
+    def test_invalid_ip_fields_are_not_returned(self):
+        """Direct parser callers (notably historical backfill) bypass
+        ``parse_log``'s final DB-boundary validation, so CEF IP fields must
+        be checked before they can reach PostgreSQL ``INET`` columns."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=not-an-ip dst=192.168.200.56'
+        )
+        r = parse_cef_threat(body)
+        assert r is not None
+        assert r.get('src_ip') is None
+        assert r['dst_ip'] == '192.168.200.56'
+
+    def test_invalid_device_mac_is_not_returned(self):
+        """Malformed ``UNIFIdeviceMac`` values are left unset so CEF
+        backfill updates cannot fail the whole batch on PostgreSQL
+        ``MACADDR`` coercion."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 UNIFIdeviceMac=not-a-mac'
+        )
+        r = parse_cef_threat(body)
+        assert r is not None
+        assert r.get('mac_address') is None
+
+    def test_direction_unknown_value_left_unset(self):
+        """An ``UNIFIdirection`` value outside the known mapping leaves
+        ``direction`` unset rather than passing through a garbage value."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 UNIFIdirection=lateral'
+        )
+        r = parse_cef_threat(body)
+        assert r.get('direction') is None
+
+    def test_geo_fallback_src_region_when_direction_missing(self):
+        """When ``UNIFIdirection`` is absent and only ``UNIFIsrcRegion`` is
+        present, fall back to using the source region — better than no
+        geo data at all."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 UNIFIsrcRegion=DE'
+        )
+        r = parse_cef_threat(body)
+        assert r['geo_country'] == 'DE'
+
+    def test_geo_fallback_dst_region_when_direction_missing(self):
+        """Symmetric fallback: only ``UNIFIdstRegion`` present, no
+        direction hint — use the destination region."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'src=1.2.3.4 dst=2.3.4.5 UNIFIdstRegion=FR'
+        )
+        r = parse_cef_threat(body)
+        assert r['geo_country'] == 'FR'
+
+    def test_msg_only_extension(self):
+        """When the extension portion contains *only* ``msg=...`` (no
+        other key=value pairs), the parser must not blow up — the rest
+        of the result is still well-formed albeit sparse."""
+        body = (
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected|7|'
+            'msg=A bare message with no other fields.'
+        )
+        r = parse_cef_threat(body)
+        assert r is not None
+        assert r['log_type'] == 'firewall'
+        # Nothing else should be set
+        assert r.get('src_ip') is None
+        assert r.get('rule_action') is None
 
 
 # ── derive_direction ─────────────────────────────────────────────────────────
@@ -547,3 +924,57 @@ class TestParseLog:
         line = 'Feb  8 16:43:49 UDR systemd[1]: Starting Daily Cleanup...'
         r = parse_log(line)
         assert r['log_type'] == 'system'
+
+    def test_cef_threat_end_to_end(self, monkeypatch):
+        """A real CEF threat line wrapped in the usual RFC3164 syslog
+        header is parsed into structured ``log_type='firewall'`` fields
+        so it shares the FIREWALL filter UI with netfilter blocks."""
+        monkeypatch.setenv('TZ', 'UTC')
+        line = (
+            'May 14 13:51:35 UDMPRO '
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected and Blocked|7|'
+            'src=176.65.148.67 dst=192.168.200.56 proto=UDP spt=123 dpt=64280 '
+            'act=blocked UNIFIrisk=medium UNIFIpolicyName=DShield Block List '
+            'UNIFIpolicyType=IDS/IPS UNIFIdirection=incoming UNIFIsrcRegion=NL'
+        )
+        r = parse_log(line)
+        assert r is not None
+        assert r['log_type'] == 'firewall'
+        assert r['src_ip'] == '176.65.148.67'
+        assert r['dst_ip'] == '192.168.200.56'
+        assert r['rule_action'] == 'block'
+        assert r['geo_country'] == 'NL'
+        assert r['protocol'] == 'udp'
+        assert r['raw_log'] == line  # Original raw preserved
+
+    def test_cef_audit_end_to_end_no_regression(self, monkeypatch):
+        """Audit / config-change CEF events still resolve to ``log_type='system'``
+        with ``raw_log`` preserved — no silent regression for existing data."""
+        monkeypatch.setenv('TZ', 'UTC')
+        line = (
+            'May 14 00:59:56 UDMPRO '
+            'CEF:0|Ubiquiti|UniFi Network|10.3.58|546|Config Modified|5|'
+            'UNIFIcategory=Audit UNIFIadmin=Operator src=192.168.200.159'
+        )
+        r = parse_log(line)
+        assert r is not None
+        assert r['log_type'] == 'system'
+        assert r['raw_log'] == line
+
+    def test_cef_unifi_os_doubled_timestamp_end_to_end(self, monkeypatch):
+        """UniFi OS-level CEF events sometimes carry a doubled timestamp
+        (RFC3164 *and* ISO8601), which pushes the hostname into the syslog
+        body and prefixes the ``CEF:`` marker. These are out-of-scope
+        audit-style events (ECID 11xx) — must not be claimed by the CEF
+        threat parser and must not crash; falling through to ``system``
+        with ``raw_log`` preserved is the correct behaviour."""
+        monkeypatch.setenv('TZ', 'UTC')
+        line = (
+            'May 15 00:41:02 2026-05-15T00:41:02.199Z UDMPRO '
+            'CEF:0|Ubiquiti|UniFi OS|5.0.16|1102|Application Updated|1|'
+            'UNIFIhost=Host UNIFIdeviceName=UDMPRO msg=Talk has been updated.'
+        )
+        r = parse_log(line)
+        assert r is not None
+        assert r['log_type'] == 'system'
+        assert r['raw_log'] == line

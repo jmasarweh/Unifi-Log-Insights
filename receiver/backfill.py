@@ -26,6 +26,7 @@ QUEUE_BATCH_SIZE = 50             # IPs per queue pass
 STALE_REENRICH_BATCH = 10         # Stale IPs per pass
 SERVICE_NAME_BATCH_SIZE = 1000    # Rows per service-name cursor batch
 RULE_ACTION_BATCH_SIZE = 500      # Rows per rule-action cursor batch
+CEF_PARSER_BATCH_SIZE = 500       # Rows per CEF backfill cursor batch
 
 
 class BackfillTask:
@@ -70,6 +71,7 @@ class BackfillTask:
         # One-shot migrations (ID cursor, persisted progress)
         self._service_name_migration()
         self._backfill_rule_action()
+        self._backfill_cef_parser()
         self._orphan_queue_seed()
 
         # Queue worker: process deferred threat lookups
@@ -331,6 +333,103 @@ class BackfillTask:
                          len(updates), last_id)
 
         set_config(self.db, 'rule_action_backfill_last_id', last_id)
+
+    # ── One-shot CEF parser backfill ─────────────────────────────────────────
+
+    def _backfill_cef_parser(self):
+        """One-shot ID-cursor backfill of historical CEF threat events.
+
+        UniFi Network 10.x's "SIEM Server" Activity Logging emits IDS/IPS
+        threat events in CEF format. Before the CEF parser was added,
+        these rows were stored as ``log_type='system'`` with every
+        structured field null — so the Threats counter, Threat Map, and
+        Dataflow views had nothing to draw. This backfill re-parses those
+        historical rows in place using :func:`parsers.parse_cef_threat`, so
+        UIP's analytics surfaces immediately reflect the past data after
+        a deploy (rather than only new events arriving going forward).
+
+        Behaviour:
+            - Gated by ``cef_parser_backfill_done`` in ``system_config``;
+              runs at most once per deployment.
+            - ID-cursor based with progress persisted to
+              ``cef_parser_backfill_last_id``, so an interrupted run
+              resumes from where it left off.
+            - One batch (:data:`CEF_PARSER_BATCH_SIZE`) per cycle to keep
+              IO bounded — full backfill of a typical home installation
+              (tens of thousands of rows) completes within a handful of
+              :data:`QUEUE_WORKER_INTERVAL` cycles without IO spikes
+              (see issue #67 for the IO-spike history this design avoids).
+            - Skips rows whose raw_log doesn't actually parse as a threat
+              event despite matching the pre-filter regex — defensive,
+              shouldn't happen in practice.
+
+        Performance note: like ``_backfill_rule_action``, Postgres
+        applies the regex filter during the index scan. For sparse
+        matches across a large id range, individual batches may scan
+        wide ranges. This is a one-time migration cost.
+        """
+        from db import get_config, set_config
+        from parsers import parse_cef_threat
+
+        if get_config(self.db, 'cef_parser_backfill_done', False):
+            return
+
+        last_id = get_config(self.db, 'cef_parser_backfill_last_id', 0) or 0
+
+        rows = self.db.cef_parser_backfill_batch(last_id, CEF_PARSER_BATCH_SIZE)
+        if not rows:
+            set_config(self.db, 'cef_parser_backfill_done', True)
+            logger.info("CEF parser backfill complete (cursor at id=%d)", last_id)
+            return
+
+        updates: list[tuple[int, dict]] = []
+        queued_remote_ips: set[str] = set()
+        for row_id, raw_log in rows:
+            last_id = row_id
+            # The CEF body lives somewhere inside the full ``raw_log``
+            # (after the syslog header). Locate the marker and slice
+            # rather than trying to reuse SYSLOG_HEADER — this is robust
+            # against minor header variations across UniFi versions.
+            cef_idx = raw_log.find('CEF:0|Ubiquiti|')
+            if cef_idx == -1:
+                # Pre-filter regex matched yet the marker is missing —
+                # defensive only; should be unreachable in practice.
+                continue
+            parsed = parse_cef_threat(raw_log[cef_idx:])
+            if parsed is None:
+                # Pre-filter said "looks like a threat" but the full
+                # parser disagreed (e.g. malformed extensions). Skip
+                # silently; the raw_log stays intact in the row.
+                continue
+            # Apply the local pieces of the live enrichment pipeline
+            # (geo_*, asn_*, rdns, remote_ip, device names) but skip
+            # synchronous AbuseIPDB calls. A historical parser backfill
+            # can examine hundreds of rows per cycle; direct API lookups
+            # here would burn through free-tier quota. Unknown remote IPs
+            # are queued below for the normal deferred worker instead.
+            parsed = self.enricher.enrich(parsed, include_threat=False)
+
+            remote_ip = parsed.get('remote_ip')
+            if (remote_ip
+                    and parsed.get('log_type') == 'firewall'
+                    and parsed.get('rule_action') == 'block'
+                    and self.abuseipdb.enabled
+                    and remote_ip not in queued_remote_ips):
+                try:
+                    self.db.enqueue_threat_backfill(remote_ip, source='cef_backfill')
+                    queued_remote_ips.add(remote_ip)
+                except Exception:
+                    logger.warning("CEF backfill failed to enqueue %s", remote_ip, exc_info=True)
+            updates.append((row_id, parsed))
+
+        if updates:
+            patched = self.db.patch_cef_parsed_logs(updates)
+            logger.debug(
+                "CEF parser backfill: %d rows patched in batch (cursor at id=%d)",
+                patched, last_id,
+            )
+
+        set_config(self.db, 'cef_parser_backfill_last_id', last_id)
 
     def _orphan_queue_seed(self):
         """One-time seed: scan historical logs for orphan IPs missing from ip_threats.

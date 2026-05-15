@@ -13,6 +13,7 @@ from enrichment import (
     GeoIPEnricher,
     RDNSEnricher,
     TTLCache,
+    _merge_threat_data,
     _parse_bool_setting,
     _resolve_rdns_enabled,
     is_public_ip,
@@ -799,6 +800,106 @@ class TestRDNSEnricherConcurrency:
             assert r == {'rdns': 'host-1.2.3.4.example.com'}
 
 
+# ── _merge_threat_data ───────────────────────────────────────────────────────
+
+class TestMergeThreatData:
+    """Tests for the helper that merges enricher threat data into a
+    parsed log dict without clobbering parser-set values.
+
+    Background: ``parse_cef_threat`` sets ``threat_score`` (from
+    ``UNIFIrisk``) and ``threat_categories`` (from ``UNIFIipsSignature``)
+    for CEF threat events that route through the firewall log_type.
+    The subsequent AbuseIPDB enrichment runs on the same row; without
+    this merge, ``parsed.update(threat_data)`` would silently overwrite
+    those parser-set values with AbuseIPDB's (potentially 0) score for
+    IPs not in their database.
+    """
+
+    def test_max_score_preserves_parser_value_when_abuseipdb_returns_zero(self):
+        """A medium UniFi event (score=60) must not be downgraded to 0
+        by an AbuseIPDB cache miss."""
+        parsed = {'threat_score': 60, 'threat_categories': ['UniFi sig']}
+        threat_data = {'threat_score': 0, 'threat_categories': []}
+
+        _merge_threat_data(parsed, threat_data)
+
+        assert parsed['threat_score'] == 60
+
+    def test_max_score_takes_higher_abuseipdb_value(self):
+        """An AbuseIPDB score that exceeds the parser-set value wins —
+        the higher reading is more alarming and is what callers want."""
+        parsed = {'threat_score': 60}
+        threat_data = {'threat_score': 95}
+
+        _merge_threat_data(parsed, threat_data)
+
+        assert parsed['threat_score'] == 95
+
+    def test_score_set_when_parser_left_it_none(self):
+        """When the parser left ``threat_score`` unset (no
+        ``UNIFIrisk``, classic netfilter row, etc.), the AbuseIPDB
+        value is used as-is — including 0, which is the established
+        signal for "looked up, not abusive"."""
+        parsed = {}
+        threat_data = {'threat_score': 0}
+
+        _merge_threat_data(parsed, threat_data)
+
+        assert parsed['threat_score'] == 0
+
+    def test_categories_union_preserves_both_sources(self):
+        """UniFi IPS signature and AbuseIPDB categories coexist; order
+        is preserved (UniFi first since it's already in ``parsed``)
+        and duplicates are dropped."""
+        parsed = {'threat_categories': ['ET DROP Dshield Block Listed Source group 1']}
+        threat_data = {
+            'threat_categories': ['blacklist', 'scanner'],
+        }
+
+        _merge_threat_data(parsed, threat_data)
+
+        assert parsed['threat_categories'] == [
+            'ET DROP Dshield Block Listed Source group 1',
+            'blacklist',
+            'scanner',
+        ]
+
+    def test_categories_no_duplicates_after_merge(self):
+        parsed = {'threat_categories': ['blacklist']}
+        threat_data = {'threat_categories': ['blacklist', 'scanner']}
+
+        _merge_threat_data(parsed, threat_data)
+
+        assert parsed['threat_categories'] == ['blacklist', 'scanner']
+
+    def test_other_threat_fields_use_standard_update(self):
+        """AbuseIPDB-only fields (``abuse_*``) have no parser-set
+        counterpart and should update normally."""
+        parsed = {'threat_score': 60}
+        threat_data = {
+            'threat_score': 0,
+            'abuse_total_reports': 42,
+            'abuse_is_tor': True,
+        }
+
+        _merge_threat_data(parsed, threat_data)
+
+        assert parsed['threat_score'] == 60  # preserved
+        assert parsed['abuse_total_reports'] == 42
+        assert parsed['abuse_is_tor'] is True
+
+    def test_caller_dict_not_mutated(self):
+        """The merge helper must not mutate the caller's ``threat_data``
+        dict — callers may reuse it for logging or coalescing checks."""
+        parsed = {'threat_score': 60, 'threat_categories': ['UniFi']}
+        threat_data = {'threat_score': 30, 'threat_categories': ['AIPDB']}
+        original = dict(threat_data)
+
+        _merge_threat_data(parsed, threat_data)
+
+        assert threat_data == original
+
+
 # ── Enricher toggle gates (live + reload) ────────────────────────────────────
 
 class TestEnricherRdnsToggle:
@@ -825,6 +926,34 @@ class TestEnricherRdnsToggle:
         e.enrich(parsed)
         e.rdns.lookup.assert_not_called()
         assert 'rdns' not in parsed
+
+    def test_include_threat_false_keeps_local_enrichment_only(self, monkeypatch):
+        """Historical parser backfills need GeoIP/ASN/rDNS/remote_ip without
+        spending AbuseIPDB quota synchronously. ``include_threat=False`` keeps
+        that path local-only; the caller can enqueue the remote IP separately."""
+        e = self._make_enricher(monkeypatch, db=None)
+        e.geoip.lookup = MagicMock(return_value={
+            'geo_country': 'NL',
+            'geo_lat': 52.3676,
+            'geo_lon': 4.9041,
+        })
+        e.rdns.lookup = MagicMock(return_value={'rdns': 'example.test'})
+        e.abuseipdb.lookup = MagicMock(return_value={'threat_score': 95})
+
+        parsed = {
+            'log_type': 'firewall',
+            'src_ip': '8.8.8.8',
+            'dst_ip': '192.168.1.5',
+            'rule_action': 'block',
+        }
+
+        e.enrich(parsed, include_threat=False)
+
+        assert parsed['remote_ip'] == '8.8.8.8'
+        assert parsed['geo_country'] == 'NL'
+        assert parsed['rdns'] == 'example.test'
+        assert 'threat_score' not in parsed
+        e.abuseipdb.lookup.assert_not_called()
 
     def test_disabled_via_system_config_skips_lookup(self, monkeypatch):
         # env unset by conftest

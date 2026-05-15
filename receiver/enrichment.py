@@ -143,6 +143,62 @@ def get_abuseipdb_stats(db):
     return stats
 
 
+# ── Threat-data merging ───────────────────────────────────────────────────────
+
+def _merge_threat_data(parsed: dict, threat_data: dict) -> None:
+    """In-place merge of enriched threat data into a parsed log dict.
+
+    Preserves any parser-derived threat signal that would otherwise be
+    silently clobbered by ``parsed.update(threat_data)``. Two fields
+    receive special handling:
+
+    - ``threat_score``: takes ``max()`` of existing and incoming. UniFi
+      CEF threat events arrive with ``threat_score`` already set by
+      :func:`parsers.parse_cef_threat` from the qualitative
+      ``UNIFIrisk`` field (low=20, medium=60, high=80, critical=95). If
+      the source IP is not in AbuseIPDB's database, the lookup returns
+      ``threat_score=0`` — overwriting the UniFi signal would make the
+      event disappear from the ``threat_score > 50`` Threats counter.
+      Taking ``max()`` keeps the more alarming reading regardless of
+      provenance.
+    - ``threat_categories``: unioned (order-preserving, deduplicated).
+      UniFi populates a single-element list from ``UNIFIipsSignature``
+      (e.g. ``"ET DROP Dshield Block Listed Source group 1"``); AbuseIPDB
+      contributes its own category labels. Both are useful for filtering
+      and alerting, so we keep both rather than picking one.
+
+    All other ``threat_data`` keys (``abuse_usage_type``, ``abuse_hostnames``,
+    ``abuse_total_reports``, ``abuse_last_reported``, ``abuse_is_whitelisted``,
+    ``abuse_is_tor``, etc.) use ordinary :py:meth:`dict.update` semantics —
+    they are AbuseIPDB-only fields with no parser-set counterpart.
+
+    Args:
+        parsed: The parsed log dict being enriched (mutated in place).
+        threat_data: Dict returned by :meth:`AbuseIPDBEnricher.lookup`,
+            typically containing ``threat_score`` and
+            ``threat_categories`` plus AbuseIPDB-specific detail fields.
+    """
+    # Copy so caller's dict isn't mutated (defensive; callers don't rely
+    # on this, but it makes the merge predictable for tests).
+    incoming = dict(threat_data)
+
+    existing_score = parsed.get('threat_score')
+    new_score = incoming.get('threat_score')
+    if existing_score is not None and new_score is not None:
+        incoming['threat_score'] = max(existing_score, new_score)
+
+    existing_cats = parsed.get('threat_categories') or []
+    new_cats = incoming.get('threat_categories') or []
+    if existing_cats:
+        merged = list(existing_cats)
+        for cat in new_cats:
+            if cat not in merged:
+                merged.append(cat)
+        incoming['threat_categories'] = merged
+
+    parsed.update(incoming)
+
+
 # ── Thread-safe cache ─────────────────────────────────────────────────────────
 
 class TTLCache:
@@ -840,7 +896,7 @@ class Enricher:
                 logger.debug("touch_threat_last_seen failed for %s", ip, exc_info=True)
             self._recently_touched[ip] = time.monotonic()
 
-    def enrich(self, parsed: dict) -> dict:
+    def enrich(self, parsed: dict, include_threat: bool = True) -> dict:
         """Enrich a parsed log entry with GeoIP, ASN, threat, and rDNS data.
 
         Strategy:
@@ -849,6 +905,12 @@ class Enricher:
         - rDNS: all remote public IPs
 
         WAN and gateway IPs are excluded — they belong to us, not the remote party.
+
+        Args:
+            parsed: Parsed log dict to enrich in place.
+            include_threat: When false, skip synchronous AbuseIPDB lookups and
+                queue writes. Historical backfills use this to keep API usage
+                bounded while still applying local GeoIP/ASN/rDNS enrichment.
         """
         # Auto-exclude WAN IPs (v4 + v6) from enrichment as they're learned
         from parsers import get_wan_ip
@@ -941,17 +1003,24 @@ class Enricher:
             if rdns_data.get('rdns'):
                 parsed['rdns'] = rdns_data['rdns']
 
-        # AbuseIPDB (blocked firewall events, or pihole with threat enabled)
+        if not include_threat:
+            return parsed
+
+        # AbuseIPDB (blocked firewall events, or pihole with threat enabled).
+        # Use ``_merge_threat_data`` rather than ``parsed.update`` so any
+        # parser-set threat_score / threat_categories (e.g. from UniFi CEF
+        # threat events) survives an AbuseIPDB cache miss that returns
+        # ``threat_score=0``. See the helper's docstring for details.
         if (is_pihole and self._pihole_enrichment in ('threat', 'both')):
             threat_data = self.abuseipdb.lookup(ip_to_enrich)
             if threat_data:
-                parsed.update(threat_data)
+                _merge_threat_data(parsed, threat_data)
                 self._touch_threat_coalesced(ip_to_enrich)
         elif (parsed.get('log_type') == 'firewall'
                 and parsed.get('rule_action') == 'block'):
             threat_data = self.abuseipdb.lookup(ip_to_enrich)
             if threat_data:
-                parsed.update(threat_data)
+                _merge_threat_data(parsed, threat_data)
                 self._touch_threat_coalesced(ip_to_enrich)
             elif self.abuseipdb.enabled and self._db:
                 # Enqueue for deferred lookup — coalesced, only when AbuseIPDB is configured

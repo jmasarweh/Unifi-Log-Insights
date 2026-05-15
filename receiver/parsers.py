@@ -2,7 +2,20 @@
 UniFi Log Insight - Syslog Parsers
 
 Parses UDR syslog messages into structured data.
-Log types: firewall, dns, dhcp, wifi
+
+Log types:
+    firewall  - block/allow/redirect packet events. Two sub-formats live
+                here: classic iptables/netfilter kernel logs (SRC=/DST=/
+                PROTO=) and CEF-formatted IDS/IPS threat events from
+                Network 10.x's "SIEM Server" Activity Logging mode. They
+                share a log_type because from a user perspective both
+                are firewall block decisions; the ``rule_desc`` column
+                distinguishes them (``IDS/IPS`` for the latter).
+    dns       - dnsmasq queries/replies/forwards
+    dhcp      - dnsmasq-dhcp lease events
+    wifi      - hostapd / stamgr / stahtd events
+    system    - catch-all for anything else (UDM internals, kernel,
+                non-threat CEF subcategories, etc.)
 """
 
 import os
@@ -72,6 +85,68 @@ DHCP_REQ     = re.compile(rf'DHCPREQUEST\((\S+)\)\s+([0-9a-fA-F:.]+)\s+({MAC_PAT
 # ── WiFi (stamgr / hostapd) ───────────────────────────────────────────────────
 WIFI_EVENT  = re.compile(r'(\w+):\s+STA\s+([0-9a-f:]+)')
 WIFI_ASSOC  = re.compile(r'STA\s+([0-9a-f:]+)\s+.*?(associated|disassociated|deauthenticated|authenticated)')
+
+# ── CEF (UniFi Network 10.x "SIEM Server" Activity Logging) ───────────────────
+#
+# Network 10.x's CyberSecure → Traffic Logging → Activity Logging feature can
+# forward security events in CEF (Common Event Format) instead of the classic
+# per-daemon syslog stream. A typical threat line looks like:
+#
+#     CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected and Blocked|7|
+#         UNIFIcategory=Security proto=UDP spt=123 dpt=64280 act=blocked
+#         src=176.65.148.67 dst=192.168.200.56 UNIFIrisk=medium ...
+#
+# Header columns are pipe-delimited:
+#   CEF:VERSION | VENDOR | PRODUCT | DEVICE_VERSION | EVENT_CLASS_ID | NAME | SEVERITY | EXTENSIONS
+#
+# Reference: https://docs.microfocus.com/doc/cef and the upstream UniFi help
+# article on SIEM integration.
+CEF_HEADER = re.compile(
+    r'^CEF:(?P<version>\d+)\|'
+    r'(?P<vendor>[^|]*)\|'
+    r'(?P<product>[^|]*)\|'
+    r'(?P<device_version>[^|]*)\|'
+    r'(?P<event_class_id>[^|]*)\|'
+    r'(?P<name>[^|]*)\|'
+    r'(?P<severity>\d+)\|'
+    r'(?P<extensions>.*)$'
+)
+
+# Tokeniser for CEF extension key=value pairs. Keys are alphanumeric;
+# values run until the next ``\s+key=`` boundary or end-of-line. The
+# ``msg=`` extension is handled separately (see _parse_cef_extensions)
+# because its value can legitimately contain ``=`` and arbitrary spaces.
+CEF_EXT_KV = re.compile(r'\b([a-zA-Z]\w*)=(.*?)(?=\s+[a-zA-Z]\w+=|$)')
+
+# Fast pre-match used by ``detect_log_type`` to identify threat-class CEF
+# events without parsing the full header. ECID 2xx is UniFi's range for
+# Suricata-derived IDS/IPS detections.
+CEF_THREAT_PREMATCH = re.compile(r'^CEF:0\|Ubiquiti\|[^|]*\|[^|]*\|2\d\d\|Threat\b')
+
+# Map UniFi's qualitative ``UNIFIrisk`` levels to an integer score that
+# fits the ``threat_score`` schema column (0-100, also used by AbuseIPDB).
+# Letting both producers write the same column means dashboards can
+# sort/filter on a single field regardless of provenance.
+#
+# Note: the UIP "Threats" stats counter uses ``threat_score > 50`` (strict),
+# so ``medium`` is mapped to 60 rather than 50. UniFi labels verified
+# threat-intel hits (e.g. DShield Block List) as "medium", and surfacing
+# those in the Threats counter matches user intent.
+_UNIFI_RISK_SCORE: dict[str, int] = {
+    'low': 20,
+    'medium': 60,
+    'high': 80,
+    'critical': 95,
+}
+
+# Translate UniFi CEF direction values to UIP's ``direction`` enum.
+# UIP uses {inbound, outbound, inter_vlan, nat}; UniFi CEF emits
+# {incoming, outgoing}. The inter_vlan and nat values do not have
+# direct CEF analogues.
+_UNIFI_DIRECTION: dict[str, str] = {
+    'incoming': 'inbound',
+    'outgoing': 'outbound',
+}
 
 # Module-level config (set by main.py after DB initialization)
 WAN_INTERFACES = {'ppp0'}  # Default fallback
@@ -455,13 +530,240 @@ def parse_wifi(body: str) -> dict:
     return result
 
 
+def _parse_cef_extensions(ext_str: str) -> dict[str, str]:
+    """Parse the extension portion of a CEF line into a key→value dict.
+
+    CEF extensions are space-separated ``key=value`` pairs. Keys are
+    alphanumeric (plus underscore); values run until the next ``key=``
+    boundary or end-of-line. The ``msg=`` extension is special-cased
+    because its value can legitimately contain spaces, ``=`` characters
+    and other punctuation that would otherwise corrupt tokenisation —
+    it is extracted up front, then the remainder is fed to the
+    key=value tokeniser.
+
+    Args:
+        ext_str: The extension substring captured by ``CEF_HEADER`` as
+            the ``extensions`` named group.
+
+    Returns:
+        Dict mapping extension keys to (string) values. Empty values are
+        dropped so callers can use simple ``.get(key)``-then-truthy
+        checks without ambiguity.
+    """
+    extensions: dict[str, str] = {}
+    main_part = ext_str
+
+    # msg= is greedy-to-end-of-line; pull it out before tokenising the rest.
+    # Use ``rfind`` (not ``find``) because earlier extension *values* can
+    # legitimately contain the literal substring " msg=" — e.g. an IPS
+    # signature whose description happens to include those characters.
+    # UniFi always emits msg= as the final extension, so the last
+    # occurrence is the actual msg boundary.
+    if ' msg=' in ext_str:
+        msg_idx = ext_str.rfind(' msg=')
+        extensions['msg'] = ext_str[msg_idx + len(' msg='):]
+        main_part = ext_str[:msg_idx]
+    elif ext_str.startswith('msg='):
+        extensions['msg'] = ext_str[len('msg='):]
+        main_part = ''
+
+    for match in CEF_EXT_KV.finditer(main_part):
+        key = match.group(1)
+        value = match.group(2).strip()
+        if value:
+            extensions[key] = value
+
+    return extensions
+
+
+def parse_cef_threat(body: str) -> dict | None:
+    """Parse a CEF threat-class event from UniFi Activity Logging.
+
+    UniFi Network 10.x's *SIEM Server* mode (configured under
+    Settings → CyberSecure → Traffic Logging → Activity Logging → SIEM Server)
+    forwards security events in CEF (Common Event Format) instead of the
+    classic per-daemon syslog format. A representative threat event::
+
+        CEF:0|Ubiquiti|UniFi Network|10.3.58|201|Threat Detected and Blocked|7|
+            UNIFIcategory=Security proto=UDP spt=123 dpt=64280 act=blocked
+            src=176.65.148.67 dst=192.168.200.56 UNIFIrisk=medium
+            UNIFIpolicyName=DShield Block List UNIFIpolicyType=IDS/IPS
+            UNIFIdirection=incoming UNIFIsrcRegion=NL ...
+
+    This parser handles **only** the threat / IDS-IPS subset of CEF
+    events (event class ID 2xx, ``name`` beginning with "Threat"),
+    mapping CEF header fields and ``UNIFI*`` extensions to UIP's
+    existing ``logs`` schema columns. Other CEF subcategories (audit
+    ``5xx``, device ``3xx``, wifi ``4xx``, client, vpn, OS-level
+    ``11xx``) are intentionally out of scope here and return ``None``
+    so :func:`parse_log` falls back to :func:`parse_system` —
+    preserving prior behaviour for those events while we incrementally
+    add dedicated routing as the UI gains corresponding views.
+
+    Threat events are returned with ``log_type='firewall'`` so they
+    inherit UIP's existing FIREWALL filter button, BLOCK action filter,
+    Flow View, etc. The ``rule_desc='IDS/IPS'`` column distinguishes
+    them from netfilter blocks for callers that care.
+
+    Notes:
+        - Protocol values are lower-cased to match the iptables firewall
+          parser convention (so e.g. ``UDP`` becomes ``'udp'``).
+        - ``geo_country`` is set from the **external** party's region:
+          ``UNIFIsrcRegion`` for inbound flows, ``UNIFIdstRegion`` for
+          outbound. When direction is unknown but only one side has a
+          region populated, that side is used.
+        - ``threat_score`` is derived from the qualitative ``UNIFIrisk``
+          field via :data:`_UNIFI_RISK_SCORE`. Unknown levels yield no
+          score (rather than guessing a default).
+        - Integer fields (ports) are parsed defensively: malformed values
+          are silently skipped rather than raising. The receiver thread
+          must never crash on bad packets (see issue #110).
+
+    Args:
+        body: The syslog message **body** — i.e. what
+            :data:`SYSLOG_HEADER` captures as the ``body`` group, after
+            any leading RFC3164 priority prefix and the standard header
+            have been stripped by :func:`parse_log`. Must begin with
+            ``CEF:0|Ubiquiti|``.
+
+    Returns:
+        Structured dict with ``log_type='firewall'`` and populated
+        network / rule / threat fields on a recognised threat event,
+        or ``None`` when the body is not a Ubiquiti threat-class CEF
+        line (foreign vendor, audit event, malformed header, etc.).
+        Callers should treat ``None`` as "fall back to
+        :func:`parse_system`" so ``raw_log`` is still persisted.
+    """
+    match = CEF_HEADER.match(body)
+    if not match:
+        return None
+
+    # Only claim Ubiquiti CEF; a relayed foreign-vendor CEF (rare but
+    # possible) has its own field schema we cannot interpret.
+    if match.group('vendor') != 'Ubiquiti':
+        return None
+
+    event_class_id = match.group('event_class_id')
+    name = match.group('name')
+
+    # Threat-class CEF events only. UniFi uses ECID 2xx for IDS/IPS
+    # detections and the ``name`` field reliably begins with "Threat".
+    if not event_class_id.startswith('2') or not name.startswith('Threat'):
+        return None
+
+    ext = _parse_cef_extensions(match.group('extensions'))
+
+    # Routed into 'firewall' to share UIP's existing filter UI and
+    # Flow/Dashboard SQL with netfilter blocks. ``rule_desc='IDS/IPS''
+    # (set below from UNIFIpolicyType) is what distinguishes them.
+    result: dict = {'log_type': 'firewall'}
+
+    # ── Network 5-tuple ────────────────────────────────────────────────
+    if ext.get('src'):
+        result['src_ip'] = ext['src']
+    if ext.get('dst'):
+        result['dst_ip'] = ext['dst']
+
+    for ext_key, result_key in (('spt', 'src_port'), ('dpt', 'dst_port')):
+        raw = ext.get(ext_key)
+        if raw is None:
+            continue
+        try:
+            result[result_key] = int(raw)
+        except ValueError:
+            # Malformed port — leave unset; the raw_log is still saved.
+            pass
+
+    if ext.get('proto'):
+        result['protocol'] = ext['proto'].lower()
+
+    # Map destination port to its IANA service name, mirroring the
+    # firewall parser so the dataflow view shows the same labels
+    # regardless of which parser produced the row.
+    result['service_name'] = get_service_name(
+        result.get('dst_port'), result.get('protocol')
+    )
+
+    # ── Action ─────────────────────────────────────────────────────────
+    action_raw = ext.get('act')
+    if action_raw == 'blocked':
+        result['rule_action'] = 'block'
+    elif action_raw == 'allowed':
+        result['rule_action'] = 'allow'
+
+    # ── Rule / policy metadata ─────────────────────────────────────────
+    if ext.get('UNIFIpolicyName'):
+        result['rule_name'] = ext['UNIFIpolicyName']
+    if ext.get('UNIFIpolicyType'):
+        result['rule_desc'] = ext['UNIFIpolicyType']
+
+    # ── Direction ──────────────────────────────────────────────────────
+    direction_raw = ext.get('UNIFIdirection', '').lower()
+    if direction_raw in _UNIFI_DIRECTION:
+        result['direction'] = _UNIFI_DIRECTION[direction_raw]
+
+    # ── Geo country (external party's region) ──────────────────────────
+    src_region = ext.get('UNIFIsrcRegion')
+    dst_region = ext.get('UNIFIdstRegion')
+    if direction_raw == 'incoming' and src_region:
+        result['geo_country'] = src_region.upper()
+    elif direction_raw == 'outgoing' and dst_region:
+        result['geo_country'] = dst_region.upper()
+    elif src_region and not dst_region:
+        result['geo_country'] = src_region.upper()
+    elif dst_region and not src_region:
+        result['geo_country'] = dst_region.upper()
+
+    # ── Threat score (qualitative → 0-100 integer) ─────────────────────
+    risk = ext.get('UNIFIrisk', '').lower()
+    if risk in _UNIFI_RISK_SCORE:
+        result['threat_score'] = _UNIFI_RISK_SCORE[risk]
+
+    # ── Threat categories ──────────────────────────────────────────────
+    # The Suricata signature description (e.g. "ET DROP Dshield Block
+    # Listed Source group 1") is the most actionable label for filtering
+    # and alerting; expose it via the existing ``threat_categories`` array.
+    signature = ext.get('UNIFIipsSignature')
+    if signature:
+        result['threat_categories'] = [signature]
+
+    # ── Device MAC (the UDM emitting the event) ────────────────────────
+    if ext.get('UNIFIdeviceMac'):
+        result['mac_address'] = ext['UNIFIdeviceMac']
+
+    return result
+
+
 def parse_system(body: str) -> dict:
     """Parse a system log line. Stores raw log only."""
     return {'log_type': 'system'}
 
 
 def detect_log_type(body: str) -> str:
-    """Detect log type from the syslog message body."""
+    """Detect log type from the syslog message body.
+
+    Returns one of the values listed in the module docstring. Order of
+    checks matters: more specific formats (CEF, iptables) are tried
+    before the daemon-name heuristics, which in turn run before the
+    ``system`` catch-all.
+
+    Non-threat CEF events (audit, device, wifi, client, vpn) are not
+    routed to a dedicated type here; they fall through to ``system`` so
+    pre-existing storage behaviour is preserved.
+
+    Note: CEF threat events are returned as ``'firewall'`` (not a new
+    log_type). They are firewall block decisions from a user perspective
+    — they belong in the same UI bucket as netfilter blocks. The
+    ``rule_desc='IDS/IPS'`` column distinguishes them from netfilter
+    blocks for callers that care. ``parse_log`` disambiguates which
+    sub-parser to invoke by inspecting the body.
+    """
+    # CEF: UniFi Network 10.x "SIEM Server" Activity Logging — threat
+    # subset only (ECID 2xx). The cheap ``startswith`` short-circuits
+    # before the regex match for the >99% of lines that are not CEF.
+    if body.startswith('CEF:0|Ubiquiti|') and CEF_THREAT_PREMATCH.match(body):
+        return 'firewall'
+
     # Firewall: contains iptables-style fields
     if 'SRC=' in body and 'DST=' in body and 'PROTO=' in body:
         return 'firewall'
@@ -508,7 +810,20 @@ def parse_log(raw_log: str) -> dict | None:
     log_type = detect_log_type(body)
 
     if log_type == 'firewall':
-        parsed = parse_firewall(body)
+        # Two sub-formats live under ``firewall``: classic netfilter
+        # kernel logs and CEF-formatted IDS/IPS threat events from
+        # Network 10.x SIEM Server forwarding. Disambiguate by body
+        # shape. ``parse_cef_threat`` returns ``None`` if the full
+        # header turns out not to match the expected shape after the
+        # cheap pre-match in ``detect_log_type``; fall back to
+        # ``parse_system`` so the raw line is still stored and never
+        # silently dropped.
+        if body.startswith('CEF:0|Ubiquiti|'):
+            parsed = parse_cef_threat(body)
+            if parsed is None:
+                parsed = parse_system(body)
+        else:
+            parsed = parse_firewall(body)
     elif log_type == 'dns':
         parsed = parse_dns(body)
     elif log_type == 'dhcp':

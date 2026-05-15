@@ -1654,6 +1654,107 @@ END $$;""",
                 )
                 return len(updates)
 
+    # ── CEF parser backfill (one-shot) ────────────────────────────────────────
+    #
+    # Columns patched per row when reparsing a CEF threat event. Order must
+    # match the SQL ``SET`` clause in :meth:`patch_cef_parsed_logs`. Listing
+    # them as a tuple makes the contract explicit and lets tests assert
+    # column coverage without coupling to the SQL string.
+    #
+    # The set is intentionally broad: the backfill runs each row through the
+    # local pieces of ``Enricher.enrich`` which populate GeoIP (geo_*), ASN
+    # (asn_*), reverse DNS (rdns), device names, and remote_ip in addition to
+    # the parser-set columns. Without these, historical CEF threat rows would
+    # never appear on the Threat Map (which filters on
+    # ``geo_lat IS NOT NULL AND geo_lon IS NOT NULL``).
+    CEF_BACKFILL_COLUMNS = (
+        # Parser-set
+        'log_type', 'src_ip', 'dst_ip', 'src_port', 'dst_port',
+        'protocol', 'service_name', 'rule_action', 'rule_name', 'rule_desc',
+        'direction', 'threat_score', 'threat_categories', 'mac_address',
+        # Enrichment-set (Enricher.enrich)
+        'remote_ip',
+        'geo_country', 'geo_city', 'geo_lat', 'geo_lon',
+        'asn_number', 'asn_name',
+        'rdns',
+        'abuse_usage_type', 'abuse_hostnames', 'abuse_total_reports',
+        'abuse_last_reported', 'abuse_is_whitelisted', 'abuse_is_tor',
+        'src_device_name', 'dst_device_name',
+    )
+
+    # Postgres POSIX-regex pattern that matches the body of any UniFi CEF
+    # threat event (vendor=Ubiquiti, ECID 2xx, name starting with "Threat").
+    # Used by the backfill batch query to filter at the DB layer so we don't
+    # pull every ``system``-typed row across the wire.
+    CEF_THREAT_PATTERN = r'CEF:0\|Ubiquiti\|[^|]*\|[^|]*\|2\d\d\|Threat'
+
+    def cef_parser_backfill_batch(self, last_id: int, batch_size: int = 500):
+        """Read a batch of unparsed CEF threat rows for the one-shot backfill.
+
+        Selects ``log_type='system'`` rows (those ingested before the CEF
+        parser was deployed) whose ``raw_log`` matches the CEF threat
+        pattern. Uses an ID cursor so progress survives restarts.
+
+        Args:
+            last_id: Highest log id already processed; only rows with
+                ``id > last_id`` are returned.
+            batch_size: Maximum number of rows to fetch in one call.
+
+        Returns:
+            List of ``(id, raw_log)`` tuples ordered by ``id`` ascending,
+            empty when the cursor has reached the end of the table.
+        """
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, raw_log FROM logs "
+                    "WHERE id > %s "
+                    "  AND log_type = 'system' "
+                    "  AND raw_log ~ %s "
+                    "ORDER BY id LIMIT %s",
+                    [last_id, self.CEF_THREAT_PATTERN, batch_size]
+                )
+                return cur.fetchall()
+
+    def patch_cef_parsed_logs(self, updates: list[tuple]) -> int:
+        """Batch-update logs with CEF-parsed fields, in place.
+
+        Each entry in ``updates`` is ``(log_id, parsed_dict)`` where
+        ``parsed_dict`` is the return value of :func:`parsers.parse_cef`.
+        Any keys missing from the dict are written as ``NULL`` — this is
+        intentional and safe because the rows being patched were previously
+        ``log_type='system'`` with all structured fields already null.
+
+        The ``WHERE log_type = 'system'`` guard is a safety belt: should
+        a concurrent process have already retyped the row (e.g. a manual
+        admin update), this skips it rather than clobbering. Matching is
+        keyed by ``id`` so the guard is essentially free.
+
+        Args:
+            updates: List of ``(log_id, parsed_dict)`` tuples.
+
+        Returns:
+            Number of rows attempted (not guaranteed actually updated —
+            see the safety guard above). Returns 0 for an empty list.
+        """
+        if not updates:
+            return 0
+
+        set_clause = ', '.join(f'{c} = %s' for c in self.CEF_BACKFILL_COLUMNS)
+        sql = f"UPDATE logs SET {set_clause} WHERE id = %s AND log_type = 'system'"
+
+        rows = [
+            tuple(parsed.get(col) for col in self.CEF_BACKFILL_COLUMNS) + (log_id,)
+            for log_id, parsed in updates
+        ]
+
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                extras.execute_batch(cur, sql, rows, page_size=500)
+                conn.commit()
+
+        return len(updates)
+
     def get_queue_stats(self) -> dict:
         """Return queue statistics for logging/monitoring."""
         with self.get_conn() as conn:

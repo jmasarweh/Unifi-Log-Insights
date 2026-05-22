@@ -269,17 +269,24 @@ def build_zone_map(unifi_api, vpn_networks=None):
     zones = unifi_api.get_firewall_zones()
     net_config = unifi_api.get_network_config()
 
-    # Build network_id -> interface from get_network_config() networks
+    # Build network_id -> interface from get_network_config() networks. When the
+    # firewall policy view is backed by UniFi's v2 API, zones may not carry
+    # networkIds. Classic /rest/networkconf still exposes firewall_zone_id in the
+    # same v2 namespace, so keep a second index for that direct zone join.
     network_id_to_info = {}
+    zone_id_to_network_infos = {}
     for net in net_config.get('networks', []):
         nid = net.get('id')
-        if not nid:
-            continue
-        network_id_to_info[nid] = {
+        info = {
             'name': net.get('name', ''),
             'interface': net.get('interface'),
             'vlan': net.get('vlan'),
         }
+        if nid:
+            network_id_to_info[nid] = info
+        firewall_zone_id = net.get('firewall_zone_id')
+        if firewall_zone_id:
+            zone_id_to_network_infos.setdefault(firewall_zone_id, []).append(info)
 
     # WAN physical interfaces
     wan_interfaces = []
@@ -311,16 +318,30 @@ def build_zone_map(unifi_api, vpn_networks=None):
             custom_idx += 1
             chain = f'CUSTOM{custom_idx}'
 
-        # Resolve interfaces from networkIds
+        # Resolve interfaces from networkIds. If v2 zones omit networkIds, fall
+        # back to the direct network.firewall_zone_id mapping prepared above.
         interfaces = []
+        seen_interfaces = set()
+
+        def add_interface(info):
+            """Append one network interface once, preserving the existing shape."""
+            iface = info.get('interface')
+            if not iface or iface in seen_interfaces:
+                return
+            interfaces.append({
+                'interface': iface,
+                'network_name': info.get('name', ''),
+                'vlan': info.get('vlan'),
+            })
+            seen_interfaces.add(iface)
+
         for nid in z.get('networkIds', []):
             info = network_id_to_info.get(nid)
-            if info and info.get('interface'):
-                interfaces.append({
-                    'interface': info['interface'],
-                    'network_name': info['name'],
-                    'vlan': info.get('vlan'),
-                })
+            if info:
+                add_interface(info)
+
+        for info in zone_id_to_network_infos.get(zone_id, []):
+            add_interface(info)
 
         # External zone — add WAN interfaces
         if zname_lower == 'external' and not interfaces:

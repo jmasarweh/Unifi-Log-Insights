@@ -316,7 +316,7 @@ flowchart LR
         end
 
         subgraph FW_API["Firewall Queries"]
-            FW1["/api/firewall/policies<br>UniFi API passthrough<br>zones + policies"]
+            FW1["/api/firewall/policies<br>Network v2 policies + zones<br>Integration-shaped response"]
             FW2["/api/firewall/policies/bulk-logging<br>Batch toggle loggingEnabled"]
             FW3["/api/firewall/policies/match-log<br>Match log to policy"]
         end
@@ -349,3 +349,27 @@ flowchart LR
     style UI fill:#4a90d9,color:#fff
     style PATTERNS fill:#95a5a6,color:#fff
 ```
+
+## 8. UniFi Firewall API Boundary
+
+Most UniFi data access uses the documented local Network Integration API under
+`/proxy/network/integration/v1`. Firewall policy logging is intentionally
+different on UniFi OS controllers running Network 10.x:
+
+- Integration firewall policy reads can omit `id` for policies created in the
+  UniFi Network UI, which makes later PATCH calls impossible.
+- Integration firewall zone reads return UUID zone ids, while Network v2
+  firewall policies reference Mongo-style zone ids.
+- The Firewall Syslog Manager therefore reads both policies and zones from
+  Network v2 endpoints and reshapes them to the existing frontend contract.
+
+The invariant is that one `/api/firewall/policies` response must use one
+identifier namespace: every `policy.source.zoneId` and
+`policy.destination.zoneId` must appear in `zones[].id`. Policy writes use the
+same v2 `_id` exposed as `policy.id`, fetch the full policy body, flip only the
+`logging` flag, and `PUT` the full body back to Network v2.
+
+Log-to-policy matching still needs interface membership. When v2 zone records do
+not include contained `networkIds`, the matcher uses `firewall_zone_id` from the
+classic `/rest/networkconf` network records to join bridge interfaces to the same
+v2 zone ids.

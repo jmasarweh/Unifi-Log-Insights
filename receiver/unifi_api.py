@@ -1,7 +1,8 @@
 """
 UniFi Log Insight - UniFi Controller API Client
 
-Handles all interactions with the UniFi Controller's Classic and Integration APIs.
+Handles interactions with UniFi Controller Classic, Integration, and selected
+internal v2 APIs.
 Phase 1: Settings, wizard network config, firewall policy management.
 Phase 2: Client/device polling, IP-to-device-name enrichment.
 """
@@ -641,12 +642,21 @@ class UniFiAPI:
             })
 
         # ── Network segments from Integration API (/networks) ──
-        # Subnet lookup from classic API /rest/networkconf (keyed by name)
+        # Subnet and firewall-zone lookup from classic API /rest/networkconf
+        # (keyed by name). The Integration API returns clean network UUIDs, but
+        # the v2 firewall policy/zone endpoints use Mongo-style zone ids. Keeping
+        # firewall_zone_id on each network gives the matcher a same-namespace
+        # bridge without changing the public setup-wizard fields.
         subnet_by_name = {}
+        firewall_zone_by_name = {}
         for net in networks_raw:
             n = net.get('name', '')
-            if n and net.get('ip_subnet'):
+            if not n:
+                continue
+            if net.get('ip_subnet'):
                 subnet_by_name[n] = net['ip_subnet']
+            if net.get('firewall_zone_id'):
+                firewall_zone_by_name[n] = net['firewall_zone_id']
 
         networks = []
         try:
@@ -666,6 +676,7 @@ class UniFiAPI:
                     'interface': iface,
                     'vlan': vlan_id,
                     'ip_subnet': subnet_by_name.get(name, ''),
+                    'firewall_zone_id': firewall_zone_by_name.get(name),
                 })
         except Exception as e:
             logger.warning("Integration API /networks failed, falling back to classic: %s", e)
@@ -685,6 +696,7 @@ class UniFiAPI:
                     'interface': iface,
                     'vlan': vlan_id,
                     'ip_subnet': net.get('ip_subnet', ''),
+                    'firewall_zone_id': net.get('firewall_zone_id'),
                 })
 
         return {
@@ -823,26 +835,238 @@ class UniFiAPI:
     # ── Phase 1: Firewall Management ─────────────────────────────────────────
 
     def get_firewall_zones(self) -> list:
-        """Fetch all firewall zones."""
-        data = self._get_integration_site('/firewall/zones')
-        return data.get('data', [])
+        """Fetch firewall zones from the v2 zone-matrix endpoint.
+
+        Firewall policies are read from UniFi's v2 policy endpoint because the
+        Integration API can omit policy ids for rules created in the Network UI.
+        The same identifier split exists for zones: v2 policy ``source.zone_id``
+        and ``destination.zone_id`` values are Mongo-style ids, while Integration
+        API zones expose UUIDs. Reading zones from v2 keeps the matrix and log
+        matcher in one identifier namespace.
+
+        The returned records are reshaped to the Integration-style schema the
+        frontend already consumes.
+        """
+        resp = self._get_session().get(
+            self._firewall_zones_v2_url(),
+            timeout=self.TIMEOUT,
+        )
+        self._check_integration_permissions(resp)
+        resp.raise_for_status()
+        zones = self._unwrap_v2_list(resp.json())
+        return [self._v2_zone_to_integration_shape(zone) for zone in zones]
+
+    def _firewall_policies_v2_url(self) -> str:
+        """Return the v2 firewall policy collection URL for this controller.
+
+        Keeping URL construction in one place prevents the read, single-policy,
+        and bulk paths from drifting if UniFi requires a different site reference
+        in the future.
+        """
+        if self._controller_type == 'self_hosted':
+            raise NotImplementedError("Firewall policy v2 API not available on self-hosted controllers")
+        site = self.site or 'default'
+        return f"{self.host}/proxy/network/v2/api/site/{site}/firewall-policies"
+
+    def _firewall_zones_v2_url(self) -> str:
+        """Return the v2 firewall zone-matrix URL for this controller.
+
+        This endpoint is paired with ``/firewall-policies`` because both expose
+        v2 zone ids. The Integration API's ``/firewall/zones`` endpoint exposes a
+        different zone id space and cannot be joined to v2 policy records.
+        """
+        if self._controller_type == 'self_hosted':
+            raise NotImplementedError("Firewall zone v2 API not available on self-hosted controllers")
+        site = self.site or 'default'
+        return f"{self.host}/proxy/network/v2/api/site/{site}/firewall/zone-matrix"
+
+    @staticmethod
+    def _unwrap_v2_list(body) -> list:
+        """Return a v2 list response from either bare-list or ``data`` envelope.
+
+        The observed v2 firewall-policies endpoint returns a bare JSON list, but
+        some UniFi endpoints use a ``{"data": [...]}`` envelope. Supporting both
+        shapes lets the caller stay strict about malformed responses without
+        duplicating the same type checks across read and write paths.
+        """
+        if isinstance(body, dict) and isinstance(body.get('data'), list):
+            return body['data']
+        if isinstance(body, list):
+            return body
+        raise ValueError("Unexpected v2 list response shape")
+
+    @staticmethod
+    def _v2_zone_to_integration_shape(zone: dict) -> dict:
+        """Translate a v2 zone-matrix record to the Integration API zone shape.
+
+        v2 zone-matrix records carry UI aggregation fields under keys such as
+        ``data``; those are not part of the existing UIP contract and are dropped.
+        Some controller versions do not expose contained network ids on this
+        endpoint. When they are absent, ``networkIds`` is returned as an empty
+        list and the log matcher falls back to ``network.firewall_zone_id`` from
+        classic ``/rest/networkconf`` to recover interface membership.
+        """
+
+        network_ids = zone.get('networkIds') or zone.get('network_ids') or []
+        if isinstance(network_ids, list):
+            network_ids = [
+                item.get('_id') or item.get('id') if isinstance(item, dict) else item
+                for item in network_ids
+            ]
+            network_ids = [item for item in network_ids if item]
+        else:
+            network_ids = []
+
+        metadata = zone.get('metadata') if isinstance(zone.get('metadata'), dict) else {}
+        origin = metadata.get('origin')
+        if not origin:
+            origin = 'SYSTEM_DEFINED' if zone.get('zone_key') or zone.get('predefined') else 'USER_DEFINED'
+
+        return {
+            'id': zone.get('_id') or zone.get('id'),
+            'name': zone.get('name') or zone.get('display_name') or '',
+            'networkIds': network_ids,
+            'metadata': {
+                'origin': origin,
+                'configurable': metadata.get('configurable', zone.get('configurable', True)),
+            },
+        }
+
+    def _get_v2_firewall_policy_records(self) -> list:
+        """Fetch raw v2 firewall policy records without schema translation.
+
+        Public callers use :meth:`get_firewall_policies`, which reshapes records
+        for the frontend. The raw records are needed for writes because UniFi's
+        v2 endpoint rejects partial updates and requires the full policy body.
+        """
+        resp = self._get_session().get(
+            self._firewall_policies_v2_url(),
+            timeout=self.TIMEOUT,
+        )
+        self._check_integration_permissions(resp)
+        resp.raise_for_status()
+        return self._unwrap_v2_list(resp.json())
+
+    @staticmethod
+    def _v2_policy_to_integration_shape(policy: dict) -> dict:
+        """Translate a v2 firewall policy record to the Integration API shape.
+
+        UniFi Network 10.x exposes firewall policies through two different
+        schemas. The public Integration API shape is what this app and the
+        frontend already consume, but that API omits ``id`` for policies created
+        in the UniFi Network UI. The internal v2 endpoint includes a writable
+        Mongo ``_id`` for every policy. This translator deliberately presents
+        that v2 ``_id`` as Integration-style ``id`` so callers can keep using
+        the existing PATCH route without knowing which UniFi API backed it.
+
+        The mapping is intentionally narrow: it covers the fields UIP uses for
+        listing, matching, and toggling logging. If UniFi introduces a new
+        ``matching_target`` value, the helper raises instead of silently
+        dropping a filter and making downstream comparisons look valid when they
+        are incomplete.
+        """
+
+        def translate_side(side: dict | None, label: str) -> dict:
+            """Translate one endpoint side (source or destination).
+
+            v2 stores side-specific filters as a flat ``matching_target`` plus
+            target-specific lists. The Integration API nests those same values
+            under ``trafficFilter``. ``ANY`` is represented by omitting
+            ``trafficFilter`` entirely, which is the existing frontend contract.
+            """
+            side = side or {}
+            translated = {
+                'zoneId': side.get('zone_id'),
+            }
+            target = side.get('matching_target') or 'ANY'
+
+            if target == 'ANY':
+                return translated
+
+            if target == 'APP':
+                translated['trafficFilter'] = {
+                    'type': 'APPLICATION',
+                    'applicationFilter': {
+                        'applicationIds': side.get('app_ids') or [],
+                    },
+                }
+                return translated
+
+            if target == 'IP':
+                translated['trafficFilter'] = {
+                    'type': 'IP_ADDRESS',
+                    'ipAddressFilter': {
+                        'type': 'IP_ADDRESSES',
+                        'matchOpposite': bool(side.get('match_opposite_ips', False)),
+                        'items': [
+                            {'type': 'IP_ADDRESS', 'value': ip}
+                            for ip in (side.get('ips') or [])
+                        ],
+                    },
+                }
+                return translated
+
+            if target == 'NETWORK':
+                translated['trafficFilter'] = {
+                    'type': 'NETWORK',
+                    'networkFilter': {
+                        'networkIds': side.get('network_ids') or [],
+                        'matchOpposite': bool(side.get('match_opposite_networks', False)),
+                    },
+                }
+                return translated
+
+            raise ValueError(
+                f"Unsupported v2 firewall policy matching_target for {label}: {target}"
+            )
+
+        ip_version = {
+            'BOTH': 'IPV4_AND_IPV6',
+            'IPV4': 'IPV4',
+            'IPV6': 'IPV6',
+        }.get(policy.get('ip_version'), policy.get('ip_version'))
+
+        action = {
+            'type': policy.get('action'),
+        }
+        if policy.get('action') == 'ALLOW':
+            action['allowReturnTraffic'] = bool(policy.get('create_allow_respond', False))
+
+        return {
+            'id': policy.get('_id'),
+            'enabled': policy.get('enabled'),
+            'name': policy.get('name'),
+            'description': policy.get('description') or '',
+            'index': policy.get('index'),
+            'loggingEnabled': bool(policy.get('logging', False)),
+            'action': action,
+            'ipProtocolScope': {
+                'ipVersion': ip_version,
+            },
+            'source': translate_side(policy.get('source'), 'source'),
+            'destination': translate_side(policy.get('destination'), 'destination'),
+            'metadata': {
+                'origin': 'SYSTEM_DEFINED' if policy.get('predefined') else 'USER_DEFINED',
+            },
+        }
 
     def get_firewall_policies(self) -> list:
-        """Fetch ALL firewall policies (handles pagination internally)."""
-        all_policies = []
-        offset = 0
-        limit = 50
-        while True:
-            data = self._get_integration_site(
-                f'/firewall/policies?offset={offset}&limit={limit}'
-            )
-            page = data.get('data', [])
-            all_policies.extend(page)
-            total_count = data.get('totalCount', 0)
-            if offset + len(page) >= total_count:
-                break
-            offset += len(page)
-        return all_policies
+        """Fetch firewall policies from UniFi's internal v2 endpoint.
+
+        The Integration API endpoint used here originally is not addressable for
+        every policy: UniFi Network 10.x returns policies created in the
+        controller UI without an ``id`` field, which makes the frontend build a
+        PATCH URL ending in ``/undefined``. The v2 firewall-policies endpoint
+        returns a stable ``_id`` for every policy. This method reads from v2 and
+        reshapes the response into the Integration API schema so callers and the
+        frontend continue to see the same field names.
+
+        The v2 URL uses the classic site name/internal reference (normally
+        ``default``), not the Integration API site UUID discovered elsewhere in
+        this client.
+        """
+        policies = self._get_v2_firewall_policy_records()
+        return [self._v2_policy_to_integration_shape(policy) for policy in policies]
 
     def get_firewall_data(self) -> dict:
         """Fetch policies + zones in one call for the frontend."""
@@ -860,20 +1084,79 @@ class UniFiAPI:
             'loggingDisabled': logging_disabled,
         }
 
-    def patch_firewall_policy(self, policy_id: str, logging_enabled: bool) -> dict:
-        """Update loggingEnabled on a single policy."""
-        return self._patch_integration_site(
-            f'/firewall/policies/{policy_id}',
-            {'loggingEnabled': logging_enabled}
-        )
+    def patch_firewall_policy(
+        self,
+        policy_id: str,
+        logging_enabled: bool,
+        policy_record: dict | None = None,
+    ) -> dict:
+        """Update logging on a single firewall policy through the v2 endpoint.
 
-    def _patch_one_policy(self, policy_id: str, logging_val: bool) -> dict:
+        ``policy_id`` is the v2 Mongo ``_id`` exposed as ``id`` by
+        :meth:`get_firewall_policies`. UniFi's v2 endpoint rejects partial
+        updates, and its batch endpoint has been observed returning 200 without
+        applying changes, so the safe write path is:
+
+        1. read the full v2 policy listing;
+        2. find the exact record by ``_id``;
+        3. flip only the ``logging`` flag; and
+        4. PUT the complete policy body back to ``/firewall-policies/{_id}``.
+
+        The returned value is translated back to the Integration API shape for
+        consistency with the rest of the app.
+
+        ``policy_record`` is an optional raw v2 record supplied by the bulk
+        update path after it has fetched the listing once. Single-policy callers
+        leave it unset and this method fetches the listing itself.
+        """
+        base_url = self._firewall_policies_v2_url()
+        if policy_record is None:
+            policies = self._get_v2_firewall_policy_records()
+            record = next((item for item in policies if item.get('_id') == policy_id), None)
+        else:
+            record = policy_record if policy_record.get('_id') == policy_id else None
+
+        if record is None:
+            raise ValueError(f"policy not found: {policy_id}")
+        record = dict(record)
+
+        if bool(record.get('logging', False)) == logging_enabled:
+            return self._v2_policy_to_integration_shape(record)
+
+        record['logging'] = logging_enabled
+        resp = self._get_session().put(
+            f"{base_url}/{policy_id}",
+            json=record,
+            timeout=self.TIMEOUT,
+        )
+        self._check_integration_permissions(resp)
+        resp.raise_for_status()
+        updated = resp.json()
+        if isinstance(updated, dict) and isinstance(updated.get('data'), dict):
+            updated = updated['data']
+        if not isinstance(updated, dict):
+            raise ValueError("Unexpected v2 firewall policy update response shape")
+        return self._v2_policy_to_integration_shape(updated)
+
+    def _patch_one_policy(
+        self,
+        policy_id: str,
+        logging_val: bool,
+        policy_record: dict | None = None,
+    ) -> dict:
         """Patch a single policy with retry. Returns result dict (thread-safe)."""
         max_retries = 3
         retried = 0
         for attempt in range(max_retries):
             try:
-                self.patch_firewall_policy(policy_id, logging_val)
+                if policy_record is None:
+                    self.patch_firewall_policy(policy_id, logging_val)
+                else:
+                    self.patch_firewall_policy(
+                        policy_id,
+                        logging_val,
+                        policy_record=policy_record,
+                    )
                 return {'status': 'success', 'retried': retried}
             except requests.HTTPError as e:
                 status = e.response.status_code if e.response is not None else 0
@@ -895,7 +1178,7 @@ class UniFiAPI:
     def bulk_patch_logging(self, updates: list[dict], progress_callback=None) -> dict:
         """Batch-update loggingEnabled for multiple policies.
 
-        updates: [{"id": "uuid", "loggingEnabled": bool}, ...]
+        updates: [{"id": "v2-policy-id", "loggingEnabled": bool}, ...]
         progress_callback: optional callable(completed, total, success, failed)
             called after each policy finishes patching.
         Returns summary: {total, success, failed, skipped, retried, errors}
@@ -923,11 +1206,25 @@ class UniFiAPI:
         # Ensure session is initialized before spawning threads (avoids lazy-init race)
         self._get_session()
 
+        policy_map = None
+        try:
+            policy_map = {
+                policy.get('_id'): policy
+                for policy in self._get_v2_firewall_policy_records()
+            }
+        except Exception as e:
+            logger.warning("Bulk patch: v2 policy prefetch failed, falling back to per-policy reads: %s", e)
+
         # Patch concurrently (4 workers keeps controller happy)
         successful_ids = set()
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = {
-                pool.submit(self._patch_one_policy, item['id'], item['loggingEnabled']): item
+                pool.submit(
+                    self._patch_one_policy,
+                    item['id'],
+                    item['loggingEnabled'],
+                    policy_map.get(item['id']) if policy_map is not None else None,
+                ): item
                 for item in work_items
             }
             for future in as_completed(futures):

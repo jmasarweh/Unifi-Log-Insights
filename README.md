@@ -69,6 +69,7 @@
 - **Docker** and **Docker Compose**
 - **UniFi Router** (or any UniFi gateway that supports remote syslog)
 - **Zone-based firewall** (not legacy/classic). The Firewall Syslog Manager and firewall policy API require the zone-based policy engine. If you are still on the legacy/classic firewall, migrate via **Settings > Policy Engine** in your UniFi controller before setting up ULI.
+- **UniFi OS for Firewall Syslog Manager writes.** Firewall policy logging toggles use UniFi Network's local v2 firewall policy endpoints so UI-created policies and zone IDs stay addressable. Self-hosted controllers remain supported for discovery, but firewall management is disabled because those v2 endpoints are not available there.
 - **MaxMind GeoLite2 account** ([free signup](https://www.maxmind.com/en/geolite2/signup)) - for GeoIP/ASN lookups
 - **AbuseIPDB API key** ([free tier](https://www.abuseipdb.com/register?plan=free), recommended but optional) - for threat scoring
 

@@ -60,6 +60,20 @@ def _base_v2_policy(**overrides):
     return policy
 
 
+def _base_v2_zone(**overrides):
+    """Return a representative v2 zone-matrix record for translator tests."""
+    zone = {
+        "_id": "6a02f3f867050d3ccb3cb0d3",
+        "name": "Internal",
+        "zone_key": "internal",
+        "data": {
+            "policy_count": 12,
+        },
+    }
+    zone.update(overrides)
+    return zone
+
+
 @pytest.fixture
 def api():
     """Create a UniFiAPI instance whose HTTP session is fully mocked."""
@@ -285,6 +299,56 @@ class TestV2FirewallPolicyEndpoints:
         assert result["failed"] == 0
         assert api._session.get.call_count == 2
         assert api._session.put.call_count == 2
+
+
+class TestV2FirewallZoneEndpoints:
+    def test_zone_translation_preserves_v2_id_for_policy_cross_reference(self, api):
+        """Zone ids must stay in the same v2 namespace as policy zone_id values."""
+        mapped = api._v2_zone_to_integration_shape(_base_v2_zone())
+
+        assert mapped == {
+            "id": "6a02f3f867050d3ccb3cb0d3",
+            "name": "Internal",
+            "networkIds": [],
+            "metadata": {
+                "origin": "SYSTEM_DEFINED",
+                "configurable": True,
+            },
+        }
+
+    def test_get_firewall_zones_reads_v2_zone_matrix_and_translates(self, api):
+        """Firewall zones must come from v2 so the matrix can resolve policy zones."""
+        api._session.get.return_value = _response([_base_v2_zone()])
+
+        zones = api.get_firewall_zones()
+
+        api._session.get.assert_called_once_with(
+            "https://fake-controller/proxy/network/v2/api/site/default/firewall/zone-matrix",
+            timeout=api.TIMEOUT,
+        )
+        assert zones[0]["id"] == "6a02f3f867050d3ccb3cb0d3"
+        assert zones[0]["name"] == "Internal"
+
+    def test_firewall_data_uses_one_zone_id_namespace(self, api):
+        """Every policy source/destination zone id must resolve in the zones list."""
+        policy = _base_v2_policy(
+            source={"zone_id": "zone-internal-v2"},
+            destination={"zone_id": "zone-external-v2"},
+        )
+        zones = [
+            _base_v2_zone(_id="zone-internal-v2", name="Internal"),
+            _base_v2_zone(_id="zone-external-v2", name="External", zone_key="external"),
+        ]
+        api._session.get.side_effect = [
+            _response([policy]),
+            _response(zones),
+        ]
+
+        data = api.get_firewall_data()
+
+        zone_ids = {zone["id"] for zone in data["zones"]}
+        assert data["policies"][0]["source"]["zoneId"] in zone_ids
+        assert data["policies"][0]["destination"]["zoneId"] in zone_ids
 
 
 def test_live_controller_v2_firewall_policy_toggle_round_trip():

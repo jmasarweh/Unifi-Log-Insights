@@ -8,6 +8,7 @@
 /** Whether a policy can have its logging toggled. */
 export function isControllablePolicy(policy) {
   if (!policy) return false
+  if (!policy.id) return false
   if (policy.metadata?.origin === 'DERIVED') return false
   if (policy.enabled === false) return false
   return true

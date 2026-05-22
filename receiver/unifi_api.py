@@ -1,7 +1,8 @@
 """
 UniFi Log Insight - UniFi Controller API Client
 
-Handles all interactions with the UniFi Controller's Classic and Integration APIs.
+Handles interactions with UniFi Controller Classic, Integration, and selected
+internal v2 APIs.
 Phase 1: Settings, wizard network config, firewall policy management.
 Phase 2: Client/device polling, IP-to-device-name enrichment.
 """
@@ -641,12 +642,21 @@ class UniFiAPI:
             })
 
         # ── Network segments from Integration API (/networks) ──
-        # Subnet lookup from classic API /rest/networkconf (keyed by name)
+        # Subnet and firewall-zone lookup from classic API /rest/networkconf
+        # (keyed by name). The Integration API returns clean network UUIDs, but
+        # the v2 firewall policy/zone endpoints use Mongo-style zone ids. Keeping
+        # firewall_zone_id on each network gives the matcher a same-namespace
+        # bridge without changing the public setup-wizard fields.
         subnet_by_name = {}
+        firewall_zone_by_name = {}
         for net in networks_raw:
             n = net.get('name', '')
-            if n and net.get('ip_subnet'):
+            if not n:
+                continue
+            if net.get('ip_subnet'):
                 subnet_by_name[n] = net['ip_subnet']
+            if net.get('firewall_zone_id'):
+                firewall_zone_by_name[n] = net['firewall_zone_id']
 
         networks = []
         try:
@@ -666,6 +676,7 @@ class UniFiAPI:
                     'interface': iface,
                     'vlan': vlan_id,
                     'ip_subnet': subnet_by_name.get(name, ''),
+                    'firewall_zone_id': firewall_zone_by_name.get(name),
                 })
         except Exception as e:
             logger.warning("Integration API /networks failed, falling back to classic: %s", e)
@@ -685,6 +696,7 @@ class UniFiAPI:
                     'interface': iface,
                     'vlan': vlan_id,
                     'ip_subnet': net.get('ip_subnet', ''),
+                    'firewall_zone_id': net.get('firewall_zone_id'),
                 })
 
         return {
@@ -823,22 +835,50 @@ class UniFiAPI:
     # ── Phase 1: Firewall Management ─────────────────────────────────────────
 
     def get_firewall_zones(self) -> list:
-        """Fetch all firewall zones."""
-        data = self._get_integration_site('/firewall/zones')
-        return data.get('data', [])
+        """Fetch firewall zones from the v2 zone-matrix endpoint.
+
+        Firewall policies are read from UniFi's v2 policy endpoint because the
+        Integration API can omit policy ids for rules created in the Network UI.
+        The same identifier split exists for zones: v2 policy ``source.zone_id``
+        and ``destination.zone_id`` values are Mongo-style ids, while Integration
+        API zones expose UUIDs. Reading zones from v2 keeps the matrix and log
+        matcher in one identifier namespace.
+
+        The returned records are reshaped to the Integration-style schema the
+        frontend already consumes.
+        """
+        resp = self._get_session().get(
+            self._firewall_zones_v2_url(),
+            timeout=self.TIMEOUT,
+        )
+        self._check_integration_permissions(resp)
+        resp.raise_for_status()
+        zones = self._unwrap_v2_list(resp.json())
+        return [self._v2_zone_to_integration_shape(zone) for zone in zones]
 
     def _firewall_policies_v2_url(self) -> str:
         """Return the v2 firewall policy collection URL for this controller.
 
-        Firewall policies are the only UniFi resource currently read from the
-        internal v2 API. Keeping URL construction in one place prevents the
-        single-policy and bulk paths from drifting if UniFi requires a different
-        site reference in the future.
+        Keeping URL construction in one place prevents the read, single-policy,
+        and bulk paths from drifting if UniFi requires a different site reference
+        in the future.
         """
         if self._controller_type == 'self_hosted':
             raise NotImplementedError("Firewall policy v2 API not available on self-hosted controllers")
         site = self.site or 'default'
         return f"{self.host}/proxy/network/v2/api/site/{site}/firewall-policies"
+
+    def _firewall_zones_v2_url(self) -> str:
+        """Return the v2 firewall zone-matrix URL for this controller.
+
+        This endpoint is paired with ``/firewall-policies`` because both expose
+        v2 zone ids. The Integration API's ``/firewall/zones`` endpoint exposes a
+        different zone id space and cannot be joined to v2 policy records.
+        """
+        if self._controller_type == 'self_hosted':
+            raise NotImplementedError("Firewall zone v2 API not available on self-hosted controllers")
+        site = self.site or 'default'
+        return f"{self.host}/proxy/network/v2/api/site/{site}/firewall/zone-matrix"
 
     @staticmethod
     def _unwrap_v2_list(body) -> list:
@@ -853,7 +893,44 @@ class UniFiAPI:
             return body['data']
         if isinstance(body, list):
             return body
-        raise ValueError("Unexpected v2 firewall policy response shape")
+        raise ValueError("Unexpected v2 list response shape")
+
+    @staticmethod
+    def _v2_zone_to_integration_shape(zone: dict) -> dict:
+        """Translate a v2 zone-matrix record to the Integration API zone shape.
+
+        v2 zone-matrix records carry UI aggregation fields under keys such as
+        ``data``; those are not part of the existing UIP contract and are dropped.
+        Some controller versions do not expose contained network ids on this
+        endpoint. When they are absent, ``networkIds`` is returned as an empty
+        list and the log matcher falls back to ``network.firewall_zone_id`` from
+        classic ``/rest/networkconf`` to recover interface membership.
+        """
+
+        network_ids = zone.get('networkIds') or zone.get('network_ids') or []
+        if isinstance(network_ids, list):
+            network_ids = [
+                item.get('_id') or item.get('id') if isinstance(item, dict) else item
+                for item in network_ids
+            ]
+            network_ids = [item for item in network_ids if item]
+        else:
+            network_ids = []
+
+        metadata = zone.get('metadata') if isinstance(zone.get('metadata'), dict) else {}
+        origin = metadata.get('origin')
+        if not origin:
+            origin = 'SYSTEM_DEFINED' if zone.get('zone_key') or zone.get('predefined') else 'USER_DEFINED'
+
+        return {
+            'id': zone.get('_id') or zone.get('id'),
+            'name': zone.get('name') or zone.get('display_name') or '',
+            'networkIds': network_ids,
+            'metadata': {
+                'origin': origin,
+                'configurable': metadata.get('configurable', zone.get('configurable', True)),
+            },
+        }
 
     def _get_v2_firewall_policy_records(self) -> list:
         """Fetch raw v2 firewall policy records without schema translation.

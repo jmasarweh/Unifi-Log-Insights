@@ -347,6 +347,36 @@ class TestBuildZoneMap:
         # IDs don't match → zone gets no interfaces (silent degradation)
         assert result['zone_map'][0]['interfaces'] == []
 
+    def test_v2_zone_id_maps_interface_from_network_firewall_zone_id(self):
+        """v2 zones omit networkIds, so direct network→zone ids must be honored.
+
+        UniFi's v2 firewall policies reference v2 zone ids. When zones also come
+        from v2, the zone records may not carry Integration-style networkIds.
+        The classic networkconf record carries firewall_zone_id in the same v2
+        namespace, which lets log-policy matching still map br* interfaces to
+        the same zone ids returned by the policy endpoint.
+        """
+        api = _make_api(
+            zones=[_zone('zone-v2-internal', 'Internal')],
+            net_config={
+                'wan_interfaces': [],
+                'networks': [
+                    {
+                        'id': 'integration-network-id',
+                        'name': 'Default',
+                        'interface': 'br0',
+                        'vlan': 1,
+                        'firewall_zone_id': 'zone-v2-internal',
+                    },
+                ],
+            },
+        )
+
+        result = fpm.build_zone_map(api)
+
+        assert result['zone_map'][0]['zone_id'] == 'zone-v2-internal'
+        assert result['zone_map'][0]['interfaces'][0]['interface'] == 'br0'
+
 
 # ── match_log_to_policy ──────────────────────────────────────────────────────
 

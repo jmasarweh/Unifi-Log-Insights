@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/jmasarweh/UniFi-Insights-Plus/releases/latest"><img src="https://img.shields.io/github/v/release/jmasarweh/UniFi-Insights-Plus" alt="GitHub Release" /></a>
-  <a href="https://github.com/jmasarweh/UniFi-Insights-Plus/pkgs/container/unifi-log-insight"><img src="https://img.shields.io/badge/downloads-31k+-blue" alt="Downloads" /></a>
+  <a href="https://github.com/jmasarweh/UniFi-Insights-Plus/pkgs/container/unifi-log-insight"><img src="https://img.shields.io/badge/downloads-41k+-blue" alt="Downloads" /></a>
   <a href="https://chromewebstore.google.com/detail/unifi-insights-plus/dlpkbnjhbhkijfkgnmnbohbokdfoimge"><img src="https://img.shields.io/chrome-web-store/v/dlpkbnjhbhkijfkgnmnbohbokdfoimge?label=chrome-extension" alt="Chrome Web Store" /></a>
   <a href="https://addons.mozilla.org/en-US/firefox/addon/unifi-insights-plus/"><img src="https://img.shields.io/amo/v/unifi-insights-plus?label=firefox-addon" alt="Firefox Add-ons" /></a>
   <a href="https://github.com/jmasarweh/UniFi-Insights-Plus/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/jmasarweh/UniFi-Insights-Plus/test.yml?branch=main&label=tests" alt="Tests" /></a>

@@ -38,6 +38,7 @@ from routes.auth import (
     log_proxy_token,
 )
 from routes.tokens import router as tokens_router
+from routes.adguard import router as adguard_router
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -136,6 +137,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ('/api/settings/',       'settings.read', 'settings.write'),
         ('/api/config/export',   'settings.read', None),
         ('/api/config/retention','settings.read', 'settings.write'),
+        ('/api/config/adguard', 'settings.read', 'settings.write'),
+        ('/api/adguard',        'settings.read', None),
         ('/api/config',          'settings.read', 'settings.write'),
         ('/api/setup/',          'settings.read', 'settings.write'),
         ('/api/firewall/',       'firewall.read', 'firewall.write'),
@@ -273,6 +276,7 @@ app.include_router(mcp_router)
 app.include_router(views_router)
 app.include_router(migration_router)
 app.include_router(pihole_router)
+app.include_router(adguard_router)
 
 
 # ── Startup: verify all /api/ routes are covered by auth policy ─────────────

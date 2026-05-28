@@ -452,6 +452,28 @@ export async function testPiholeConnection(params) {
   })
 }
 
+// ── AdGuard Home Settings API ────────────────────────────────────────────────
+
+export async function fetchAdguardConfig() {
+  return apiFetch(`${BASE}/config/adguard`)
+}
+
+export async function updateAdguardConfig(config) {
+  return apiFetch(`${BASE}/config/adguard`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  })
+}
+
+export async function testAdguardConnection(params) {
+  return apiFetch(`${BASE}/config/adguard/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+}
+
 // ── Version Check ────────────────────────────────────────────────────────────
 
 export async function fetchLatestRelease(currentVersion) {

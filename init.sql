@@ -109,6 +109,32 @@ CREATE INDEX IF NOT EXISTS idx_logs_nondns_timestamp
     ON logs (timestamp DESC)
     WHERE log_type != 'dns';
 
+-- Aggressive autovacuum for the high-churn logs table.
+-- Default scale_factor=0.2 means autovacuum waits until 20% of rows are dead
+-- before reclaiming space. On a large table that threshold is never reached
+-- quickly enough after batch deletes, causing unbounded bloat (issue #92).
+ALTER TABLE logs SET (
+    autovacuum_vacuum_scale_factor  = 0.01,
+    autovacuum_vacuum_cost_delay    = 2,
+    autovacuum_analyze_scale_factor = 0.02,
+    -- Higher I/O budget per autovacuum worker: lets it process more pages per
+    -- delay cycle and keep pace with high-ingestion dead-tuple accumulation.
+    autovacuum_vacuum_cost_limit    = 10000
+);
+
+-- Log autovacuum operations that take longer than 60 s on this database.
+-- This lets operators verify the scale_factor tuning is firing as expected
+-- after large cleanups without flooding logs on busy systems.
+-- Lower to '0' to log every autovacuum/autoanalyze for deeper debugging.
+DO $$
+BEGIN
+    -- Use current_database() so this script is portable across any DB name.
+    EXECUTE format(
+        'ALTER DATABASE %I SET log_autovacuum_min_duration = ''60000''',
+        current_database()
+    );
+END $$;
+
 -- AbuseIPDB threat score cache (persistent across restarts)
 CREATE TABLE IF NOT EXISTS ip_threats (
     ip              INET PRIMARY KEY,

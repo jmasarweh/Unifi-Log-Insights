@@ -90,7 +90,8 @@ def update_unifi_settings(body: dict):
 
     unifi_api.reload_config()
     invalidate_fw_cache()
-    signal_receiver()
+    if not signal_receiver():
+        logger.warning("Config saved but receiver reload signal failed; restart may be required")
 
     return {"success": True}
 
@@ -147,7 +148,8 @@ def test_unifi_connection(body: dict):
             set_config(enricher_db, 'unifi_enabled', True)
             unifi_api.reload_config()
             _seed_network_identity()
-            signal_receiver()
+            if not signal_receiver():
+                logger.warning("Config saved but receiver reload signal failed; restart may be required")
 
     else:
         # UniFi OS: API key auth
@@ -187,7 +189,8 @@ def test_unifi_connection(body: dict):
             set_config(enricher_db, 'unifi_enabled', True)
             unifi_api.reload_config()
             _seed_network_identity()
-            signal_receiver()
+            if not signal_receiver():
+                logger.warning("Config saved but receiver reload signal failed; restart may be required")
 
     return result
 

@@ -258,6 +258,14 @@ class TestRetentionConfigGet:
         assert data['retention_time'] == '07:30'
         assert data['time_source'] == 'ui'
 
+    def test_get_returns_500_on_db_failure(self, client):
+        test_client, _, mock_db, _ = client
+        mock_db.Database.resolve_retention_days.side_effect = RuntimeError('db unavailable')
+
+        resp = test_client.get('/api/config/retention')
+        assert resp.status_code == 500
+        assert resp.json()['detail'] == 'Failed to load retention config'
+
 
 class TestRetentionConfigPost:
     def test_post_saves_valid_retention_time(self, client):

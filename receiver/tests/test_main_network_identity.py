@@ -10,12 +10,13 @@ under test.
 """
 
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # Stub heavy transitive dependencies of main.py before import.
 # Order matters: deps must be stubbed before routes.auth.
 _stubs = (
-    'schedule', 'enrichment', 'backfill', 'blacklist',
+    'schedule', 'parsers', 'db', 'enrichment', 'backfill', 'blacklist',
+    'unifi_api', 'pihole_api', 'adguard_poller',
     'deps', 'routes', 'routes.auth',
 )
 _originals = {}
@@ -26,7 +27,7 @@ for _mod in _stubs:
         sys.modules[_mod] = MagicMock()
 
 # Now safe to import the functions under test
-from main import _use_log_identity_detection, _refresh_network_identity_from_logs
+from main import _use_log_identity_detection, _refresh_network_identity_from_logs, _log_periodic_stats
 
 # Restore original module state so stubs don't leak to other test files
 for _mod, _orig in _originals.items():
@@ -76,3 +77,28 @@ class TestRefreshNetworkIdentityFromLogs:
         db.detect_wan_ip.side_effect = Exception("WAN failed")
         _refresh_network_identity_from_logs(db)
         db.detect_gateway_ips.assert_called_once()
+
+
+class TestPeriodicStatsLogging:
+
+    def test_skips_db_queries_when_not_debug(self):
+        db = MagicMock()
+        enricher = MagicMock()
+
+        with patch('main.logger.isEnabledFor', return_value=False):
+            _log_periodic_stats(db, enricher)
+
+        db.get_stats.assert_not_called()
+        enricher.get_stats.assert_not_called()
+
+    def test_collects_stats_when_debug_enabled(self):
+        db = MagicMock()
+        enricher = MagicMock()
+        db.get_stats.return_value = {'total': 1, 'last_hour': 1}
+        enricher.get_stats.return_value = {'ok': True}
+
+        with patch('main.logger.isEnabledFor', return_value=True):
+            _log_periodic_stats(db, enricher)
+
+        db.get_stats.assert_called_once_with()
+        enricher.get_stats.assert_called_once_with()

@@ -28,6 +28,9 @@ services:
       MAXMIND_ACCOUNT_ID: "your_account_id"
       MAXMIND_LICENSE_KEY: "your_license_key"
       LOG_LEVEL: "INFO"
+      # Refresh cadence for log-based WAN/gateway identity detection (minutes)
+      # .env override supported via Compose interpolation.
+      WAN_REFRESH_INTERVAL_MINUTES: "${WAN_REFRESH_INTERVAL_MINUTES:-360}"
       TZ: "Europe/London"
       UNIFI_API_KEY: "your_unifi_api_key_here"
       UNIFI_HOST: "https://192.168.1.1"

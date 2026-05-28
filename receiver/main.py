@@ -18,6 +18,7 @@ import threading
 from collections import deque
 
 import schedule
+import psycopg2
 
 from parsers import parse_log
 import parsers
@@ -41,6 +42,21 @@ SYSLOG_BUFFER_SIZE = 8192      # Max UDP packet size
 BATCH_SIZE = 50                 # Insert logs in batches
 BATCH_TIMEOUT = 2.0             # Flush batch after N seconds even if not full
 STATS_INTERVAL_MINUTES = 15     # Log stats every N minutes
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read an integer env var with safe fallback."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+        return value if value > 0 else default
+    except ValueError:
+        return default
+
+
+WAN_REFRESH_INTERVAL_MINUTES = _env_int('WAN_REFRESH_INTERVAL_MINUTES', 360)
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
@@ -255,6 +271,36 @@ def _refresh_network_identity_from_logs(db: Database):
         logger.error("Gateway IP detection failed: %s", e)
 
 
+def _log_periodic_stats(db: Database, enricher: Enricher):
+    """Collect and log stats only when DEBUG logging is enabled."""
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+    db_stats = None
+    enrich_stats = None
+
+    try:
+        db_stats = db.get_stats()
+    except psycopg2.Error as e:
+        logger.error("Failed to get DB stats: %s", e)
+    except Exception as e:
+        # Last-resort safeguard: stats must never break scheduler loop.
+        logger.error("Failed to get DB stats (unexpected): %s", e)
+
+    try:
+        enrich_stats = enricher.get_stats()
+    except Exception as e:
+        # Last-resort safeguard: stats must never break scheduler loop.
+        logger.error("Failed to get enrichment stats (unexpected): %s", e)
+
+    try:
+        if db_stats is not None:
+            logger.debug("DB stats — total: %s, last hour: %s", db_stats['total'], db_stats['last_hour'])
+        if enrich_stats is not None:
+            logger.debug("Enrichment stats — %s", enrich_stats)
+    except (KeyError, TypeError) as e:
+        logger.error("Failed to log stats payload: %s", e)
+
+
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 
 def _retention_cleanup(db: Database):
@@ -318,13 +364,7 @@ def run_scheduler(db: Database, enricher: Enricher, blacklist_fetcher: Blacklist
     """Background thread for scheduled tasks (retention cleanup, stats, blacklist)."""
 
     def log_stats():
-        try:
-            db_stats = db.get_stats()
-            enrich_stats = enricher.get_stats()
-            logger.debug("DB stats — total: %s, last hour: %s", db_stats['total'], db_stats['last_hour'])
-            logger.debug("Enrichment stats — %s", enrich_stats)
-        except Exception as e:
-            logger.error("Failed to get stats: %s", e)
+        _log_periodic_stats(db, enricher)
 
     def pull_blacklist():
         if blacklist_fetcher:
@@ -337,14 +377,14 @@ def run_scheduler(db: Database, enricher: Enricher, blacklist_fetcher: Blacklist
         _refresh_network_identity_from_logs(db)
 
     schedule.every(STATS_INTERVAL_MINUTES).minutes.do(log_stats)
-    schedule.every(STATS_INTERVAL_MINUTES).minutes.do(refresh_wan_ip)
+    schedule.every(WAN_REFRESH_INTERVAL_MINUTES).minutes.do(refresh_wan_ip)
     _register_retention_job(db)
     schedule.every().day.at("04:00").do(pull_blacklist)
     # auth_cleanup has its own internal try/except — no wrapper needed here.
     schedule.every().day.at("03:30").do(auth_cleanup)
 
-    logger.info("Scheduler started — stats every %dm, blacklist daily at 04:00, auth cleanup daily at 03:30",
-                 STATS_INTERVAL_MINUTES)
+    logger.info("Scheduler started — stats every %dm, WAN refresh every %dm, blacklist daily at 04:00, auth cleanup daily at 03:30",
+                 STATS_INTERVAL_MINUTES, WAN_REFRESH_INTERVAL_MINUTES)
 
     # Initial blacklist pull after 30s startup delay
     time.sleep(30)
